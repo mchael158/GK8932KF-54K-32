@@ -14,7 +14,7 @@ pub fn find_pids_by_exe_path(target: &str) -> Vec<u32> {
     #[cfg(not(target_os = "linux"))]
     {
         let _ = target;
-        return Vec::new();
+        Vec::new()
     }
     #[cfg(target_os = "linux")]
     {

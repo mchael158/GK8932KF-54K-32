@@ -12,7 +12,10 @@ pub struct AnomalyReport {
 pub fn summarize_inventory_diff(diff: &InventoryDiff) -> AnomalyReport {
     let mut parts = Vec::new();
     if !diff.packages_changed.is_empty() {
-        parts.push(format!("{} package(s) upgraded", diff.packages_changed.len()));
+        parts.push(format!(
+            "{} package(s) upgraded",
+            diff.packages_changed.len()
+        ));
     }
     if !diff.executables_hash_changed.is_empty() {
         parts.push(format!(
@@ -41,11 +44,7 @@ pub fn summarize_inventory_diff(diff: &InventoryDiff) -> AnomalyReport {
     }
 }
 
-pub fn format_diff_report(
-    before_label: &str,
-    after_label: &str,
-    diff: &InventoryDiff,
-) -> String {
+pub fn format_diff_report(before_label: &str, after_label: &str, diff: &InventoryDiff) -> String {
     let report = summarize_inventory_diff(diff);
     let mut out = String::new();
     let _ = writeln!(out, "CHRONOS SENTINEL — DIFF");
@@ -80,7 +79,11 @@ pub fn format_diff_report(
         let _ = writeln!(out);
         let _ = writeln!(out, "Changed packages:");
         for ch in diff.packages_changed.iter().take(20) {
-            let _ = writeln!(out, "  {}  {} -> {}", ch.name, ch.old_version, ch.new_version);
+            let _ = writeln!(
+                out,
+                "  {}  {} -> {}",
+                ch.name, ch.old_version, ch.new_version
+            );
         }
     }
     if !diff.executables_hash_changed.is_empty() {
@@ -113,12 +116,7 @@ pub fn format_verify_report(findings: &[VerifyFinding]) -> String {
         .filter(|f| !matches!(f.status, VerifyStatus::Ok | VerifyStatus::NoBaseline))
         .collect();
     let _ = writeln!(out, "CHRONOS SENTINEL — VERIFY");
-    let _ = writeln!(
-        out,
-        "Items: {}  issues: {}",
-        findings.len(),
-        problems.len()
-    );
+    let _ = writeln!(out, "Items: {}  issues: {}", findings.len(), problems.len());
     if problems.is_empty() {
         let _ = writeln!(out, "No mismatches (items with a baseline hash).");
         return out;

@@ -43,10 +43,7 @@ fn default_pacman_db() -> PathBuf {
 fn default_scan_roots() -> Vec<PathBuf> {
     #[cfg(target_os = "linux")]
     {
-        vec![
-            PathBuf::from("/usr/bin"),
-            PathBuf::from("/usr/local/bin"),
-        ]
+        vec![PathBuf::from("/usr/bin"), PathBuf::from("/usr/local/bin")]
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -65,6 +62,18 @@ fn default_lib_roots() -> Vec<PathBuf> {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CollectionMeta {
+    pub pacman_packages: usize,
+    /// Total paths listed under `%FILES%` across packages.
+    pub pacman_file_records: usize,
+    /// Subset of `%FILES%` under bin/lib/etc/ssh prefixes.
+    pub integrity_paths_in_db: usize,
+    pub artifacts_tracked: usize,
+    pub artifacts_hashed: usize,
+    pub bin_scan_orphans: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InventorySnapshot {
     pub collected_at: OffsetDateTime,
@@ -72,6 +81,14 @@ pub struct InventorySnapshot {
     pub tracked_executables: Vec<TrackedExecutable>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub orphan_executables: Vec<TrackedExecutable>,
+    #[serde(default, skip_serializing_if = "CollectionMeta::is_empty")]
+    pub collection: CollectionMeta,
+}
+
+impl CollectionMeta {
+    fn is_empty(&self) -> bool {
+        self.pacman_packages == 0 && self.artifacts_tracked == 0
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,33 +114,68 @@ pub async fn collect(opts: &CollectOptions) -> Result<InventorySnapshot, Invento
     #[cfg(not(target_os = "linux"))]
     {
         let _ = opts;
-        return Err(InventoryError::UnsupportedPlatform);
+        Err(InventoryError::UnsupportedPlatform)
     }
 
     #[cfg(target_os = "linux")]
     {
+        use crate::collect_pacman::{artifacts_from_package_files, count_relevant_file_entries};
+        use std::collections::HashSet;
+
         let packages = crate::pacman::list_local_packages(&opts.pacman_db).await?;
-        let mut tracked =
-            scan::scan_executables(&opts.scan_roots, opts.hash_executables).await?;
-        if opts.scan_libraries {
-            let mut libs = scan::scan_libraries(&opts.lib_roots, opts.hash_executables).await?;
-            tracked.append(&mut libs);
-        }
+        let hash_files = opts.hash_executables;
+
+        let mut tracked = artifacts_from_package_files(&packages, hash_files).await?;
+        let mut seen: HashSet<String> = tracked.iter().map(|t| t.path.clone()).collect();
         let mut orphan_executables = Vec::new();
-        tracked.retain(|exe| {
-            if exe.owning_package.is_none() {
-                orphan_executables.push(exe.clone());
-                false
-            } else {
-                true
+
+        if opts.scan_libraries {
+            let libs = scan::scan_libraries(&opts.lib_roots, hash_files).await?;
+            for item in libs {
+                if !seen.insert(item.path.clone()) {
+                    continue;
+                }
+                if item.owning_package.is_none() {
+                    orphan_executables.push(item);
+                } else {
+                    tracked.push(item);
+                }
             }
-        });
+        }
+
+        for item in scan::scan_executables(&opts.scan_roots, hash_files).await? {
+            if seen.contains(&item.path) {
+                continue;
+            }
+            seen.insert(item.path.clone());
+            if item.owning_package.is_none() {
+                orphan_executables.push(item);
+            } else {
+                tracked.push(item);
+            }
+        }
+
+        let hashed = tracked
+            .iter()
+            .chain(orphan_executables.iter())
+            .filter(|t| t.content_hash.is_some())
+            .count();
+
+        let collection = CollectionMeta {
+            pacman_packages: packages.len(),
+            pacman_file_records: packages.iter().map(|p| p.installed_files.len()).sum(),
+            integrity_paths_in_db: count_relevant_file_entries(&packages),
+            artifacts_tracked: tracked.len() + orphan_executables.len(),
+            artifacts_hashed: hashed,
+            bin_scan_orphans: orphan_executables.len(),
+        };
 
         Ok(InventorySnapshot {
             collected_at: OffsetDateTime::now_utc(),
             packages,
             tracked_executables: tracked,
             orphan_executables,
+            collection,
         })
     }
 }
@@ -157,6 +209,14 @@ fn demo_snapshot() -> InventorySnapshot {
             owning_package: None,
             content_hash: None,
         }],
+        collection: CollectionMeta {
+            pacman_packages: 2,
+            pacman_file_records: 2,
+            integrity_paths_in_db: 2,
+            artifacts_tracked: 2,
+            artifacts_hashed: 1,
+            bin_scan_orphans: 1,
+        },
     }
 }
 

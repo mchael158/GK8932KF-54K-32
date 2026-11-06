@@ -9,7 +9,7 @@ pub fn baseline_path() -> PathBuf {
 }
 
 pub fn baseline_missing_message() -> &'static str {
-    "No baseline yet. Run: chronos-sentinel on"
+    "No baseline yet. Run: chronos-sentinel on -d   (or: chronos-sentinel try)"
 }
 
 pub fn print_off_header() {

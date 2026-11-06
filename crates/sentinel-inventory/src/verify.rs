@@ -18,18 +18,26 @@ pub struct VerifyFinding {
 }
 
 pub fn verify_snapshot(snapshot: &InventorySnapshot) -> Vec<VerifyFinding> {
+    verify_snapshot_inner(snapshot, false)
+}
+
+pub fn verify_snapshot_demo_aware(snapshot: &InventorySnapshot, demo: bool) -> Vec<VerifyFinding> {
+    verify_snapshot_inner(snapshot, demo)
+}
+
+fn verify_snapshot_inner(snapshot: &InventorySnapshot, demo: bool) -> Vec<VerifyFinding> {
     let mut findings = Vec::new();
     for exe in snapshot
         .tracked_executables
         .iter()
         .chain(snapshot.orphan_executables.iter())
     {
-        findings.push(verify_entry(exe));
+        findings.push(verify_entry(exe, demo));
     }
     findings
 }
 
-fn verify_entry(entry: &TrackedExecutable) -> VerifyFinding {
+fn verify_entry(entry: &TrackedExecutable, demo: bool) -> VerifyFinding {
     let path = std::path::Path::new(&entry.path);
     let Some(expected) = entry.content_hash.as_ref() else {
         return VerifyFinding {
@@ -39,6 +47,13 @@ fn verify_entry(entry: &TrackedExecutable) -> VerifyFinding {
         };
     };
     if !path.exists() {
+        if demo && expected.hex.starts_with("demo_") {
+            return VerifyFinding {
+                path: entry.path.clone(),
+                status: VerifyStatus::Ok,
+                owning_package: entry.owning_package.clone(),
+            };
+        }
         return VerifyFinding {
             path: entry.path.clone(),
             status: VerifyStatus::Missing,

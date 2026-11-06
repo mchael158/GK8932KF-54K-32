@@ -40,9 +40,16 @@ pub async fn list_local_packages(db_path: &Path) -> Result<Vec<InstalledPackage>
 
 async fn load_packages_from_db(db_path: &Path) -> Result<Vec<InstalledPackage>, InventoryError> {
     let mut packages = Vec::new();
-    let mut read_dir = tokio::fs::read_dir(db_path).await.map_err(InventoryError::Io)?;
+    let mut read_dir = tokio::fs::read_dir(db_path)
+        .await
+        .map_err(InventoryError::Io)?;
     while let Some(entry) = read_dir.next_entry().await.map_err(InventoryError::Io)? {
-        if !entry.file_type().await.map_err(InventoryError::Io)?.is_dir() {
+        if !entry
+            .file_type()
+            .await
+            .map_err(InventoryError::Io)?
+            .is_dir()
+        {
             continue;
         }
         let desc = entry.path().join("desc");
@@ -59,32 +66,40 @@ async fn enrich_installed_files(
     packages: &mut [InstalledPackage],
     db_path: &Path,
 ) -> Result<(), InventoryError> {
+    let index = file_lists_by_package_name(db_path).await?;
     for pkg in packages.iter_mut() {
-        if let Some(files) = files_for_package_name(db_path, &pkg.name).await? {
-            pkg.installed_files = files;
+        if let Some(files) = index.get(&pkg.name) {
+            pkg.installed_files = files.clone();
         }
     }
     Ok(())
 }
 
-async fn files_for_package_name(db_path: &Path, name: &str) -> Result<Option<Vec<String>>, InventoryError> {
-    let mut read_dir = tokio::fs::read_dir(db_path).await.map_err(InventoryError::Io)?;
+async fn file_lists_by_package_name(
+    db_path: &Path,
+) -> Result<std::collections::HashMap<String, Vec<String>>, InventoryError> {
+    let mut index = std::collections::HashMap::new();
+    let mut read_dir = tokio::fs::read_dir(db_path)
+        .await
+        .map_err(InventoryError::Io)?;
     while let Some(entry) = read_dir.next_entry().await.map_err(InventoryError::Io)? {
-        if !entry.file_type().await.map_err(InventoryError::Io)?.is_dir() {
+        if !entry
+            .file_type()
+            .await
+            .map_err(InventoryError::Io)?
+            .is_dir()
+        {
             continue;
         }
         let desc = entry.path().join("desc");
         let Ok(desc_text) = tokio::fs::read_to_string(&desc).await else {
             continue;
         };
-        let Some(parsed) = parse_desc(&desc_text) else {
-            continue;
-        };
-        if parsed.name == name {
-            return Ok(Some(parsed.installed_files));
+        if let Some(parsed) = parse_desc(&desc_text) {
+            index.insert(parsed.name, parsed.installed_files);
         }
     }
-    Ok(None)
+    Ok(index)
 }
 
 fn parse_desc(desc: &str) -> Option<InstalledPackage> {

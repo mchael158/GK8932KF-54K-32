@@ -2,12 +2,21 @@ use sentinel_inventory::InventorySnapshot;
 use std::path::Path;
 
 pub fn print_inventory_summary(snapshot: &InventorySnapshot, written: Option<&Path>) {
+    let c = &snapshot.collection;
     eprintln!(
         "Packages: {}  tracked: {}  orphans: {}",
         snapshot.packages.len(),
         snapshot.tracked_executables.len(),
         snapshot.orphan_executables.len()
     );
+    if c.pacman_packages > 0 {
+        eprintln!(
+            "Collection: {} pacman file records, {} integrity paths in DB, {} hashed",
+            c.pacman_file_records,
+            c.integrity_paths_in_db,
+            c.artifacts_hashed,
+        );
+    }
     if let Some(path) = written {
         eprintln!("Snapshot: {}", path.display());
     }

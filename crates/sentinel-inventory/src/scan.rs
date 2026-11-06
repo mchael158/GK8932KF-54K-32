@@ -67,7 +67,8 @@ fn is_shared_library(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .is_some_and(|ext| matches!(ext, "so" | "0" | "1" | "2" | "3" | "4" | "5" | "6"))
-        || path.file_name()
+        || path
+            .file_name()
             .and_then(|n| n.to_str())
             .is_some_and(|n| n.contains(".so"))
 }

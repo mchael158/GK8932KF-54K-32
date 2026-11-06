@@ -1,3 +1,4 @@
+mod guide;
 mod output;
 mod state;
 
@@ -6,15 +7,23 @@ use output::{print_hash_line, print_inventory_summary};
 use sentinel_analyzer::{format_diff_report, format_verify_report};
 use sentinel_inventory::{collect_snapshot, compare_snapshots, verify_snapshot, CollectOptions};
 use sentinel_storage::{read_snapshot, write_snapshot};
+use guide::{print_quickstart, require_demo_on_host};
 use state::{baseline_missing_message, baseline_path, print_off_header};
 use std::path::PathBuf;
 
-fn brain_opts(pacman_db: PathBuf, demo: bool, mitigate: bool, json: bool) -> sentinel_agent::BrainOptions {
+fn brain_opts(
+    pacman_db: PathBuf,
+    demo: bool,
+    mitigate: bool,
+    json: bool,
+    quiet: bool,
+) -> sentinel_agent::BrainOptions {
     sentinel_agent::BrainOptions {
         pacman_db,
         demo,
         mitigate,
         json,
+        quiet,
     }
 }
 
@@ -24,32 +33,49 @@ async fn run_brain(
     demo: bool,
     mitigate: bool,
     json: bool,
+    quiet: bool,
 ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>> {
-    let result =
-        sentinel_agent::brain::run(op, brain_opts(pacman_db, demo, mitigate, json)).await?;
+    let result = sentinel_agent::brain::run(
+        op,
+        brain_opts(pacman_db, demo, mitigate, json, quiet),
+    )
+    .await?;
     Ok(result.exit_code)
 }
 
 #[derive(Parser)]
-#[command(name = "chronos-sentinel", version, about = "pacman integrity baseline (Arch)")]
+#[command(
+    name = "chronos-sentinel",
+    version,
+    about = "pacman integrity baseline (Arch)",
+    after_help = "Windows/dev:  chronos-sentinel try     |     -d = --demo = --dem"
+)]
 struct Cli {
+    #[arg(long, short = 'v', global = true, help = "show Byteflow audit: lines on stderr")]
+    verbose: bool,
+
     #[arg(long, global = true, hide = true, help = "Pacman local database path")]
     pacman_db: Option<PathBuf>,
 
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Save baseline snapshot (.chronos/baseline.json)
+    /// Synthetic end-to-end run: on → status → off (uses -d)
+    Try {
+        #[arg(long, help = "JSON on the final off step")]
+        json: bool,
+    },
+    /// Save baseline (.chronos/baseline.json)
     On {
-        #[arg(long, help = "demo snapshot")]
+        #[arg(long, short = 'd', visible_alias = "dem", help = "demo snapshot (required off Linux)")]
         demo: bool,
     },
     /// Diff and verify against baseline
     Off {
-        #[arg(long, help = "demo snapshot")]
+        #[arg(long, short = 'd', visible_alias = "dem", help = "demo snapshot (required off Linux)")]
         demo: bool,
         #[arg(long, help = "JSON diff on stdout")]
         json: bool,
@@ -59,8 +85,9 @@ enum Commands {
         )]
         mitigate: bool,
     },
-    /// Baseline file present
+    /// Show baseline path / ON state
     Status,
+    /// Export inventory JSON (add -d on Windows)
     Inventory {
         #[arg(short, long, help = "Write JSON snapshot to path")]
         output: Option<PathBuf>,
@@ -70,7 +97,7 @@ enum Commands {
         hash: bool,
         #[arg(long, help = "Scan /usr/lib for shared objects")]
         libs: bool,
-        #[arg(long, help = "demo snapshot")]
+        #[arg(long, short = 'd', visible_alias = "dem", help = "demo snapshot")]
         demo: bool,
     },
     Diff {
@@ -95,7 +122,7 @@ enum Commands {
     Agent {
         #[arg(long, default_value_t = 300, help = "seconds between off scans")]
         interval: u64,
-        #[arg(long, help = "demo snapshot")]
+        #[arg(long, short = 'd', visible_alias = "dem", help = "demo snapshot")]
         demo: bool,
         #[arg(long, help = "SIGTERM on suspicious exe paths during each scan")]
         mitigate: bool,
@@ -109,16 +136,58 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .pacman_db
         .unwrap_or_else(|| CollectOptions::default().pacman_db);
 
-    let base_opts = brain_opts(pacman_db.clone(), false, false, false);
+    let quiet = !cli.verbose;
 
-    match &cli.command {
-        Commands::Agent { .. } => {}
-        _ => sentinel_agent::supervisor::ensure_heartbeat(base_opts),
-    }
+    let Some(command) = cli.command else {
+        print_quickstart();
+        std::process::exit(0);
+    };
 
-    match cli.command {
+    match command {
+        Commands::Try { json } => {
+            eprintln!("=== try: on (demo) ===");
+            let code = run_brain(
+                sentinel_agent::OpCode::On,
+                pacman_db.clone(),
+                true,
+                false,
+                false,
+                false,
+            )
+            .await?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+            eprintln!("=== try: status ===");
+            run_brain(
+                sentinel_agent::OpCode::Status,
+                pacman_db.clone(),
+                false,
+                false,
+                false,
+                true,
+            )
+            .await?;
+            eprintln!("=== try: off (demo) ===");
+            if !json {
+                print_off_header();
+            }
+            let code = run_brain(
+                sentinel_agent::OpCode::Off,
+                pacman_db,
+                true,
+                false,
+                json,
+                quiet,
+            )
+            .await?;
+            std::process::exit(code);
+        }
         Commands::On { demo } => {
-            let code = run_brain(sentinel_agent::OpCode::On, pacman_db, demo, false, false).await?;
+            require_demo_on_host(demo, "on");
+            let code =
+                run_brain(sentinel_agent::OpCode::On, pacman_db, demo, false, false, quiet)
+                    .await?;
             if code != 0 {
                 std::process::exit(code);
             }
@@ -128,6 +197,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             json,
             mitigate,
         } => {
+            require_demo_on_host(demo, "off");
             if !baseline_path().exists() {
                 eprintln!("{}", baseline_missing_message());
                 std::process::exit(2);
@@ -135,19 +205,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             if !json {
                 print_off_header();
             }
-            let code = run_brain(
-                sentinel_agent::OpCode::Off,
-                pacman_db,
-                demo,
-                mitigate,
-                json,
-            )
-            .await?;
+            let code =
+                run_brain(sentinel_agent::OpCode::Off, pacman_db, demo, mitigate, json, quiet)
+                    .await?;
             std::process::exit(code);
         }
         Commands::Status => {
-            let code =
-                run_brain(sentinel_agent::OpCode::Status, pacman_db, false, false, false).await?;
+            let code = run_brain(
+                sentinel_agent::OpCode::Status,
+                pacman_db,
+                false,
+                false,
+                false,
+                quiet,
+            )
+            .await?;
             if code != 0 {
                 std::process::exit(code);
             }
@@ -159,6 +231,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             libs,
             demo,
         } => {
+            require_demo_on_host(demo, "inventory");
             let opts = CollectOptions {
                 pacman_db,
                 hash_executables: hash,
@@ -176,7 +249,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 print_inventory_summary(&snapshot, output.as_deref());
             }
         }
-        Commands::Diff { before, after, json } => {
+        Commands::Diff {
+            before,
+            after,
+            json,
+        } => {
             let older = read_snapshot(&before)?;
             let newer = read_snapshot(&after)?;
             let diff = compare_snapshots(&older, &newer);
@@ -229,7 +306,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             mitigate,
         } => {
             sentinel_agent::run_agent(
-                brain_opts(pacman_db, demo, mitigate, false),
+                brain_opts(pacman_db, demo, mitigate, false, quiet),
                 interval,
             )
             .await?;

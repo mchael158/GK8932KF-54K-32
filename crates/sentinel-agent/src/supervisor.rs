@@ -1,3 +1,5 @@
+//! Optional background Byteflow status loop (used when wired from `agent` helpers).
+
 use crate::brain::{self, BrainOptions, OpCode};
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -7,7 +9,9 @@ static HEARTBEAT: OnceLock<JoinHandle<()>> = OnceLock::new();
 
 const HEARTBEAT_SECS: u64 = 60;
 
-pub fn ensure_heartbeat(opts: BrainOptions) {
+#[allow(dead_code)]
+pub fn ensure_heartbeat(mut opts: BrainOptions) {
+    opts.quiet = true;
     let _ = HEARTBEAT.get_or_init(|| {
         tokio::spawn(async move {
             loop {

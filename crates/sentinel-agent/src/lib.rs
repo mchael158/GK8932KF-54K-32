@@ -1,8 +1,8 @@
 //! User-space agent: Byteflow runtime + host inventory hooks.
 
+pub mod brain;
 pub mod byteflow_bridge;
 pub mod mitigation;
-pub mod brain;
 pub mod supervisor;
 
 pub use brain::{BrainOptions, BrainResult, OpCode};

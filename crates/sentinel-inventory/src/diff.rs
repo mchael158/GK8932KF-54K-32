@@ -27,39 +27,6 @@ pub struct ExecutableHashChange {
     pub new_hash: Option<String>,
 }
 
-#[cfg(test)]
-mod diff_tests {
-    use super::*;
-    use time::OffsetDateTime;
-
-    #[test]
-    fn diff_detects_package_version_change() {
-        let before = InventorySnapshot {
-            collected_at: OffsetDateTime::now_utc(),
-            packages: vec![InstalledPackage {
-                name: "xz".into(),
-                version: "5.4.6-1".into(),
-                installed_files: vec![],
-            }],
-            tracked_executables: vec![],
-            orphan_executables: vec![],
-        };
-        let after = InventorySnapshot {
-            collected_at: OffsetDateTime::now_utc(),
-            packages: vec![InstalledPackage {
-                name: "xz".into(),
-                version: "5.6.0-1".into(),
-                installed_files: vec![],
-            }],
-            tracked_executables: vec![],
-            orphan_executables: vec![],
-        };
-        let diff = compare_snapshots(&before, &after);
-        assert_eq!(diff.packages_changed.len(), 1);
-        assert_eq!(diff.packages_changed[0].old_version, "5.4.6-1");
-    }
-}
-
 pub fn compare_snapshots(before: &InventorySnapshot, after: &InventorySnapshot) -> InventoryDiff {
     let packages_added = after
         .packages
@@ -141,5 +108,41 @@ fn diff_executables(before: &[TrackedExecutable], after: &[TrackedExecutable]) -
         added,
         removed,
         hash_changed,
+    }
+}
+
+#[cfg(test)]
+mod diff_tests {
+    use super::*;
+    use crate::CollectionMeta;
+    use time::OffsetDateTime;
+
+    #[test]
+    fn diff_detects_package_version_change() {
+        let before = InventorySnapshot {
+            collected_at: OffsetDateTime::now_utc(),
+            packages: vec![InstalledPackage {
+                name: "xz".into(),
+                version: "5.4.6-1".into(),
+                installed_files: vec![],
+            }],
+            tracked_executables: vec![],
+            orphan_executables: vec![],
+            collection: CollectionMeta::default(),
+        };
+        let after = InventorySnapshot {
+            collected_at: OffsetDateTime::now_utc(),
+            packages: vec![InstalledPackage {
+                name: "xz".into(),
+                version: "5.6.0-1".into(),
+                installed_files: vec![],
+            }],
+            tracked_executables: vec![],
+            orphan_executables: vec![],
+            collection: CollectionMeta::default(),
+        };
+        let diff = compare_snapshots(&before, &after);
+        assert_eq!(diff.packages_changed.len(), 1);
+        assert_eq!(diff.packages_changed[0].old_version, "5.4.6-1");
     }
 }

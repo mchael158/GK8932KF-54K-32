@@ -11,11 +11,34 @@ Integrity baseline for **Arch Linux**: pacman inventory, BLAKE3 hashes, diff and
 ## Commands
 
 ```bash
-chronos-sentinel on   [--demo]
-chronos-sentinel off  [--demo] [--json] [--mitigate]
+chronos-sentinel try              # demo: on → status → off (Windows-friendly)
+chronos-sentinel on   [-d|--demo|--dem]
+chronos-sentinel off  [-d] [--json] [--mitigate]
 chronos-sentinel status
-chronos-sentinel agent [--interval 300] [--demo] [--mitigate]
+chronos-sentinel agent [-d] [--interval 300] [--mitigate]
 ```
+
+Run **`chronos-sentinel`** with no subcommand to print a quick-start on stderr.
+
+### Windows / dev
+
+Pacman paths do not exist on Windows. Use **`try`** or **`-d`** on `on`/`off`. Without `-d`, the CLI exits with a short hint (exit `2`).
+
+```powershell
+cargo build -p sentinel-cli
+.\target\debug\chronos-sentinel.exe try
+```
+
+One command per line (do not paste `on`, `status`, `off` on the same line unless separated with `;`).
+
+### Data collection (Linux)
+
+1. **Pacman** — `pacman -Q` plus `%NAME%`, `%VERSION%`, `%FILES%` from `/var/lib/pacman/local/*/desc` (one indexed pass over the DB).
+2. **Primary hashes** — for each relevant `%FILES%` path (`usr/bin`, `usr/sbin`, `usr/local/bin`, `usr/lib`, `lib`, `etc/ssh`), if the file exists on disk → BLAKE3 and owner = package name (no per-file `pacman -Qo`).
+3. **Supplemental walk** — optional scan of `/usr/bin`, `/usr/local/bin`, `/usr/lib` for executables/libs **not** already covered; unowned hits → `orphan_executables`.
+4. **Snapshot** — JSON includes `collection` stats (`pacman_file_records`, `integrity_paths_in_db`, `artifacts_hashed`, `bin_scan_orphans`).
+
+`on` / `off` enable hashing and lib scan by default. Demo mode uses synthetic packages only (no disk walk).
 
 ### `on` / `off` / `status`
 
@@ -32,7 +55,7 @@ chronos-sentinel agent [--interval 300] [--demo] [--mitigate]
 ### Byteflow in this process
 
 - **`on` / `off` / `status`:** one sandboxed flow per invocation (`sentinel_run` native → inventory/diff in Rust).
-- **Heartbeat:** for any subcommand except `agent`, a background task runs Byteflow `status` every **60s** in the same OS process (audit lines on stderr: `audit: …`).
+- **Heartbeat:** removed from one-shot CLI (was interleaving output). **`agent`** is the long-running Byteflow loop.
 - **`agent`:** foreground loop — repeated `off` every **300s** by default (systemd-friendly).
 
 ## Build & test

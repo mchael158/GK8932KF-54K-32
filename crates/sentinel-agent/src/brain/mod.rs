@@ -7,10 +7,11 @@ use crate::mitigation::{self, MitigationAction};
 use byteflow::{FlowOutcome, NativeTable, Runtime, RuntimeConfig, Value};
 use program::brain_program;
 use sentinel_analyzer::{format_diff_report, format_verify_report};
-use sentinel_inventory::{
-    collect_snapshot, compare_snapshots, verify_snapshot, CollectOptions,
-};
 use sentinel_inventory::count_problems;
+use sentinel_inventory::verify_snapshot_demo_aware;
+use sentinel_inventory::{
+    collect_snapshot, compare_snapshots, CollectOptions,
+};
 use sentinel_storage::{read_snapshot, write_snapshot};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -29,6 +30,8 @@ pub struct BrainOptions {
     pub demo: bool,
     pub mitigate: bool,
     pub json: bool,
+    /// Suppress user-facing stderr and Byteflow audit lines (heartbeat / background).
+    pub quiet: bool,
 }
 
 #[derive(Debug, Default)]
@@ -37,6 +40,7 @@ pub struct BrainState {
     pub demo: bool,
     pub mitigate: bool,
     pub json: bool,
+    pub quiet: bool,
     pub baseline: PathBuf,
     pub last_check: PathBuf,
     pub mitigations: Mutex<Vec<MitigationAction>>,
@@ -50,6 +54,7 @@ impl BrainState {
             demo: opts.demo,
             mitigate: opts.mitigate,
             json: opts.json,
+            quiet: opts.quiet,
             baseline: PathBuf::from(".chronos/baseline.json"),
             last_check: PathBuf::from(".chronos/last-check.json"),
             ..Default::default()
@@ -64,7 +69,10 @@ pub struct BrainResult {
     pub mitigations: Vec<MitigationAction>,
 }
 
-pub async fn run(op: OpCode, opts: BrainOptions) -> Result<BrainResult, Box<dyn std::error::Error + Send + Sync>> {
+pub async fn run(
+    op: OpCode,
+    opts: BrainOptions,
+) -> Result<BrainResult, Box<dyn std::error::Error + Send + Sync>> {
     let serial = BRAIN_SERIAL.get_or_init(|| AsyncMutex::new(()));
     let _guard = serial.lock().await;
 
@@ -92,7 +100,9 @@ pub async fn run(op: OpCode, opts: BrainOptions) -> Result<BrainResult, Box<dyn 
     };
 
     for line in audit.drain_lines() {
-        eprintln!("audit: {line}");
+        if !opts.quiet {
+            eprintln!("audit: {line}");
+        }
     }
 
     Ok(BrainResult {
@@ -102,7 +112,9 @@ pub async fn run(op: OpCode, opts: BrainOptions) -> Result<BrainResult, Box<dyn 
     })
 }
 
-fn sentinel_native_table(state: Arc<BrainState>) -> Result<Arc<NativeTable>, Box<dyn std::error::Error + Send + Sync>> {
+fn sentinel_native_table(
+    state: Arc<BrainState>,
+) -> Result<Arc<NativeTable>, Box<dyn std::error::Error + Send + Sync>> {
     let st_run = Arc::clone(&state);
     let st_mit = Arc::clone(&state);
 
@@ -123,18 +135,13 @@ fn sentinel_native_table(state: Arc<BrainState>) -> Result<Arc<NativeTable>, Box
         .register_at(NATIVE_MITIGATE_PID, "mitigate_pid", move |args| {
             let pid = match args.first() {
                 Some(Value::Int(p)) if *p > 1 => *p as u32,
-                _ => {
-                    return Err(byteflow::Fault::NativeError(
-                        "mitigate_pid: bad pid".into(),
-                    ))
-                }
+                _ => return Err(byteflow::Fault::NativeError("mitigate_pid: bad pid".into())),
             };
             let sig = match args.get(1) {
                 Some(Value::Int(s)) => *s as i32,
                 _ => 15,
             };
-            mitigation::signal_pid(pid, sig)
-                .map_err(|e| byteflow::Fault::NativeError(e))?;
+            mitigation::signal_pid(pid, sig).map_err(byteflow::Fault::NativeError)?;
             st_mit
                 .mitigations
                 .lock()
@@ -170,26 +177,41 @@ async fn run_host_op_async(op: OpCode, state: &BrainState) -> Result<i32, String
 
     match op {
         OpCode::On => {
-            let snap = collect_snapshot(&collect).await.map_err(|e| e.to_string())?;
+            let snap = collect_snapshot(&collect)
+                .await
+                .map_err(|e| e.to_string())?;
             write_snapshot(&state.baseline, &snap).map_err(|e| e.to_string())?;
             let msg = format!(
-                "ON baseline {} ({} packages)",
+                "ON baseline {} — {} packages, {} artifacts ({} hashed, {} from pacman FILES prefixes, {} orphans from bin scan)",
                 state.baseline.display(),
-                snap.packages.len()
+                snap.packages.len(),
+                snap.collection.artifacts_tracked,
+                snap.collection.artifacts_hashed,
+                snap.collection.integrity_paths_in_db,
+                snap.collection.bin_scan_orphans,
             );
             *state.last_report.lock().expect("report") = msg.clone();
-            eprintln!("{msg}");
+            if !state.quiet {
+                eprintln!("{msg}");
+            }
             Ok(0)
         }
         OpCode::Off => {
             if !state.baseline.exists() {
-                return Err("no baseline — run ON first".into());
+                let msg = "no baseline — run ON first";
+                *state.last_report.lock().expect("report") = msg.into();
+                if !state.quiet {
+                    eprintln!("{msg}");
+                }
+                return Ok(2);
             }
             let baseline = read_snapshot(&state.baseline).map_err(|e| e.to_string())?;
-            let current = collect_snapshot(&collect).await.map_err(|e| e.to_string())?;
+            let current = collect_snapshot(&collect)
+                .await
+                .map_err(|e| e.to_string())?;
             write_snapshot(&state.last_check, &current).map_err(|e| e.to_string())?;
             let diff = compare_snapshots(&baseline, &current);
-            let findings = verify_snapshot(&current);
+            let findings = verify_snapshot_demo_aware(&current, state.demo);
             let mut report = format_diff_report(
                 &state.baseline.display().to_string(),
                 &state.last_check.display().to_string(),
@@ -244,7 +266,9 @@ async fn run_host_op_async(op: OpCode, state: &BrainState) -> Result<i32, String
                 "OFF — no baseline".into()
             };
             *state.last_report.lock().expect("report") = msg.clone();
-            eprintln!("{msg}");
+            if !state.quiet {
+                eprintln!("{msg}");
+            }
             Ok(0)
         }
     }
@@ -257,7 +281,7 @@ pub async fn run_daemon(
     eprintln!("brain daemon: OFF check every {interval_secs}s (Ctrl+C to stop)");
     loop {
         let result = run(OpCode::Off, opts.clone()).await?;
-        if result.exit_code != 0 {
+        if result.exit_code == 1 {
             eprintln!("brain: anomaly exit {}", result.exit_code);
         }
         tokio::time::sleep(std::time::Duration::from_secs(interval_secs)).await;
