@@ -1,0 +1,17 @@
+[package]
+name = "sentinel-inventory"
+description = "Inventário de pacotes, executáveis e metadados (Fase 1)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sentinel-core = { workspace = true }
+sentinel-integrity = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+time = { workspace = true }
+walkdir = "2"

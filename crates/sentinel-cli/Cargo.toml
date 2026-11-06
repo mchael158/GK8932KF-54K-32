@@ -1,0 +1,20 @@
+[package]
+name = "sentinel-cli"
+description = "CLI do Chronos Sentinel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "chronos-sentinel"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+sentinel-agent = { workspace = true }
+sentinel-inventory = { workspace = true }
+sentinel-storage = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+serde_json = { workspace = true }
+tracing-subscriber = { workspace = true }

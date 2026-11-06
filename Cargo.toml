@@ -1,0 +1,40 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/sentinel-core",
+    "crates/sentinel-agent",
+    "crates/sentinel-ebpf",
+    "crates/sentinel-inventory",
+    "crates/sentinel-profiler",
+    "crates/sentinel-integrity",
+    "crates/sentinel-analyzer",
+    "crates/sentinel-storage",
+    "crates/sentinel-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.76"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "process", "sync", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+blake3 = "1"
+sha2 = "0.10"
+rusqlite = { version = "0.32", features = ["bundled"] }
+time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
+
+sentinel-core = { path = "crates/sentinel-core" }
+sentinel-agent = { path = "crates/sentinel-agent" }
+sentinel-inventory = { path = "crates/sentinel-inventory" }
+sentinel-profiler = { path = "crates/sentinel-profiler" }
+sentinel-integrity = { path = "crates/sentinel-integrity" }
+sentinel-analyzer = { path = "crates/sentinel-analyzer" }
+sentinel-storage = { path = "crates/sentinel-storage" }

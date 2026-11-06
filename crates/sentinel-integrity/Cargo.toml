@@ -1,0 +1,10 @@
+[package]
+name = "sentinel-integrity"
+description = "Hashes e integridade de arquivos (Fase 4)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sentinel-core = { workspace = true }
+blake3 = { workspace = true }

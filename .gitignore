@@ -1,0 +1,7 @@
+/target/
+**/*.db
+**/*.db-*
+.chronos/
+.env
+.env.*
+*.zip
