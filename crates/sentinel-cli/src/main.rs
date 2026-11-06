@@ -1,15 +1,22 @@
+mod output;
+
 use clap::{Parser, Subcommand};
-use sentinel_inventory::{collect_snapshot, compare_snapshots, CollectOptions};
-use sentinel_storage::Store;
+use output::{print_hash_line, print_inventory_summary};
+use sentinel_analyzer::{format_diff_report, format_verify_report};
+use sentinel_inventory::{
+    collect_snapshot, compare_snapshots, verify_snapshot, CollectOptions,
+};
+use sentinel_storage::{read_snapshot, write_snapshot};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "chronos-sentinel", about = "Monitoramento comportamental e integridade (Linux/Arch)")]
+#[command(
+    name = "chronos-sentinel",
+    version,
+    about = "Inventory, integrity checks, and snapshot diff (CLI, Linux/Arch)"
+)]
 struct Cli {
-    #[arg(long, default_value = "chronos-sentinel.db")]
-    database: PathBuf,
-
-    #[arg(long)]
+    #[arg(long, global = true, help = "Pacman local database path")]
     pacman_db: Option<PathBuf>,
 
     #[command(subcommand)]
@@ -18,99 +25,130 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Fase 1: inventário de pacotes, executáveis e hashes
+    /// Collect packages, binaries, and optional shared libraries
     Inventory {
-        #[arg(long)]
+        #[arg(short, long, help = "Write JSON snapshot to path")]
+        output: Option<PathBuf>,
+        #[arg(long, help = "Print JSON to stdout")]
         json: bool,
-        #[arg(long, help = "Calcula BLAKE3 dos executáveis encontrados")]
+        #[arg(long, help = "BLAKE3 hash for each tracked artifact")]
         hash: bool,
-        #[arg(long, help = "Snapshot sintético (dev / Windows)")]
+        #[arg(long, help = "Scan /usr/lib for shared objects")]
+        libs: bool,
+        #[arg(long, help = "Synthetic snapshot for development")]
         demo: bool,
     },
-    /// Compara dois snapshots persistidos
+    /// Compare two JSON snapshots
     Diff {
-        #[arg(long, help = "ID do snapshot mais antigo")]
-        from: Option<i64>,
-        #[arg(long, help = "ID do snapshot mais recente")]
-        to: Option<i64>,
+        #[arg(long)]
+        before: PathBuf,
+        #[arg(long)]
+        after: PathBuf,
+        #[arg(long, help = "Print JSON to stdout")]
+        json: bool,
+        #[arg(long, help = "Detailed report on stderr (same as default today)")]
+        verbose: bool,
+    },
+    /// Re-check snapshot hashes against files on disk
+    Verify {
+        #[arg(long, help = "Snapshot created with `inventory --hash`")]
+        snapshot: PathBuf,
+        #[arg(long, help = "Print JSON to stdout")]
+        json: bool,
+    },
+    /// BLAKE3 for one or more paths
+    Hash {
+        paths: Vec<PathBuf>,
         #[arg(long)]
         json: bool,
     },
-    /// Fase 2+: agente de eventos (placeholder)
+    /// Event agent (not implemented)
     Agent,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
-
     let cli = Cli::parse();
+    let pacman_db = cli
+        .pacman_db
+        .unwrap_or_else(|| CollectOptions::default().pacman_db);
+
     match cli.command {
-        Commands::Inventory { json, hash, demo } => {
+        Commands::Inventory {
+            output,
+            json,
+            hash,
+            libs,
+            demo,
+        } => {
             let opts = CollectOptions {
-                pacman_db: cli
-                    .pacman_db
-                    .unwrap_or_else(|| CollectOptions::default().pacman_db),
+                pacman_db,
                 hash_executables: hash,
+                scan_libraries: libs,
                 demo,
                 ..CollectOptions::default()
             };
             let snapshot = collect_snapshot(&opts).await?;
-            let db_path = cli.database.to_string_lossy();
-            let store = Store::open(&db_path)?;
-            let id = store.save_inventory(&snapshot)?;
+
+            if let Some(path) = &output {
+                write_snapshot(path, &snapshot)?;
+            }
             if json {
                 println!("{}", serde_json::to_string_pretty(&snapshot)?);
             } else {
-                eprintln!(
-                    "Inventário: {} pacotes, {} executáveis, {} órfãos (snapshot #{id} → {})",
-                    snapshot.packages.len(),
-                    snapshot.tracked_executables.len(),
-                    snapshot.orphan_executables.len(),
-                    cli.database.display()
-                );
+                print_inventory_summary(&snapshot, output.as_deref());
             }
         }
-        Commands::Diff { from, to, json } => {
-            let db_path = cli.database.to_string_lossy();
-            let store = Store::open(&db_path)?;
-            let (to_id, after) = match to {
-                Some(id) => store
-                    .load_inventory(id)?
-                    .map(|s| (id, s))
-                    .ok_or_else(|| format!("snapshot #{id} não encontrado"))?,
-                None => store
-                    .latest_inventory()?
-                    .ok_or("nenhum snapshot no banco — rode `inventory` primeiro")?,
-            };
-            let (from_id, before) = match from {
-                Some(id) => store
-                    .load_inventory(id)?
-                    .map(|s| (id, s))
-                    .ok_or_else(|| format!("snapshot #{id} não encontrado"))?,
-                None => store
-                    .previous_inventory(to_id)?
-                    .ok_or("apenas um snapshot — rode `inventory` de novo ou use --from")?,
-            };
-            let diff = compare_snapshots(&before, &after);
+        Commands::Diff {
+            before,
+            after,
+            json,
+            verbose: _,
+        } => {
+            let older = read_snapshot(&before)?;
+            let newer = read_snapshot(&after)?;
+            let diff = compare_snapshots(&older, &newer);
             if json {
                 println!("{}", serde_json::to_string_pretty(&diff)?);
             } else {
-                eprintln!("Diff #{from_id} → #{to_id}:");
-                eprintln!("  pacotes +{} -{} ~{}", diff.packages_added.len(), diff.packages_removed.len(), diff.packages_changed.len());
-                eprintln!(
-                    "  executáveis +{} -{} hash~{}",
-                    diff.executables_added.len(),
-                    diff.executables_removed.len(),
-                    diff.executables_hash_changed.len()
+                eprint!(
+                    "{}",
+                    format_diff_report(
+                        &before.display().to_string(),
+                        &after.display().to_string(),
+                        &diff
+                    )
                 );
-                eprintln!(
-                    "  órfãos +{} -{}",
-                    diff.orphans_added.len(),
-                    diff.orphans_removed.len()
-                );
+            }
+        }
+        Commands::Verify { snapshot, json } => {
+            let snap = read_snapshot(&snapshot)?;
+            let findings = verify_snapshot(&snap);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&findings)?);
+            } else {
+                eprint!("{}", format_verify_report(&findings));
+            }
+        }
+        Commands::Hash { paths, json } => {
+            if paths.is_empty() {
+                eprintln!("provide at least one path");
+                std::process::exit(2);
+            }
+            for path in paths {
+                let hash = sentinel_integrity::hash_file_blake3(&path)?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "path": path.display().to_string(),
+                            "algorithm": "blake3",
+                            "hex": hash.hex,
+                        })
+                    );
+                } else {
+                    print_hash_line(&path, &hash.hex);
+                }
             }
         }
         Commands::Agent => {

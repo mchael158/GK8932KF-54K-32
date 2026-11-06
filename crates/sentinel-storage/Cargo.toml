@@ -1,14 +1,11 @@
 [package]
 name = "sentinel-storage"
-description = "Persistência SQLite de eventos e snapshots"
+description = "JSON snapshot read/write (no embedded DB)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-sentinel-core = { workspace = true }
 sentinel-inventory = { workspace = true }
-rusqlite = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-time = { workspace = true }

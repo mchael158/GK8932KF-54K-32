@@ -1,6 +1,6 @@
 [package]
 name = "sentinel-ebpf"
-description = "Programas eBPF (Aya) — apenas Linux"
+description = "eBPF programs (Aya), Linux only"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

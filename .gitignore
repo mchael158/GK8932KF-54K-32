@@ -1,7 +1,10 @@
 /target/
-**/*.db
-**/*.db-*
 .chronos/
 .env
 .env.*
 *.zip
+*.db
+*.db-*
+
+# local CLI snapshots (optional)
+snapshots/

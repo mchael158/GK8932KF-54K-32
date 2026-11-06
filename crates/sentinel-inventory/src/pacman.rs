@@ -2,8 +2,10 @@ use crate::{InstalledPackage, InventoryError};
 use std::path::Path;
 use tokio::process::Command;
 
-/// Lista pacotes via `pacman -Q` quando disponível; fallback: diretórios em `local/`.
+/// List packages via `pacman -Q` and enrich file lists from `local/*/desc`.
 pub async fn list_local_packages(db_path: &Path) -> Result<Vec<InstalledPackage>, InventoryError> {
+    let mut packages = Vec::new();
+
     if let Ok(output) = Command::new("pacman")
         .args(["-Q", "--quiet"])
         .output()
@@ -11,7 +13,6 @@ pub async fn list_local_packages(db_path: &Path) -> Result<Vec<InstalledPackage>
     {
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
-            let mut packages = Vec::new();
             for line in text.lines() {
                 let Some((name, version)) = line.split_once(' ') else {
                     continue;
@@ -22,14 +23,22 @@ pub async fn list_local_packages(db_path: &Path) -> Result<Vec<InstalledPackage>
                     installed_files: Vec::new(),
                 });
             }
-            return Ok(packages);
         }
     }
 
-    if !db_path.exists() {
-        return Err(InventoryError::PacmanDb(db_path.display().to_string()));
+    if packages.is_empty() {
+        if !db_path.exists() {
+            return Err(InventoryError::PacmanDb(db_path.display().to_string()));
+        }
+        packages = load_packages_from_db(db_path).await?;
+    } else if db_path.exists() {
+        enrich_installed_files(&mut packages, db_path).await?;
     }
 
+    Ok(packages)
+}
+
+async fn load_packages_from_db(db_path: &Path) -> Result<Vec<InstalledPackage>, InventoryError> {
     let mut packages = Vec::new();
     let mut read_dir = tokio::fs::read_dir(db_path).await.map_err(InventoryError::Io)?;
     while let Some(entry) = read_dir.next_entry().await.map_err(InventoryError::Io)? {
@@ -44,6 +53,38 @@ pub async fn list_local_packages(db_path: &Path) -> Result<Vec<InstalledPackage>
         }
     }
     Ok(packages)
+}
+
+async fn enrich_installed_files(
+    packages: &mut [InstalledPackage],
+    db_path: &Path,
+) -> Result<(), InventoryError> {
+    for pkg in packages.iter_mut() {
+        if let Some(files) = files_for_package_name(db_path, &pkg.name).await? {
+            pkg.installed_files = files;
+        }
+    }
+    Ok(())
+}
+
+async fn files_for_package_name(db_path: &Path, name: &str) -> Result<Option<Vec<String>>, InventoryError> {
+    let mut read_dir = tokio::fs::read_dir(db_path).await.map_err(InventoryError::Io)?;
+    while let Some(entry) = read_dir.next_entry().await.map_err(InventoryError::Io)? {
+        if !entry.file_type().await.map_err(InventoryError::Io)?.is_dir() {
+            continue;
+        }
+        let desc = entry.path().join("desc");
+        let Ok(desc_text) = tokio::fs::read_to_string(&desc).await else {
+            continue;
+        };
+        let Some(parsed) = parse_desc(&desc_text) else {
+            continue;
+        };
+        if parsed.name == name {
+            return Ok(Some(parsed.installed_files));
+        }
+    }
+    Ok(None)
 }
 
 fn parse_desc(desc: &str) -> Option<InstalledPackage> {

@@ -2,7 +2,7 @@ use crate::identity::ProcessStartId;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-/// Observação de uma execução (execve → exit ou amostra parcial).
+/// Single execution observation (execve through exit or partial sample).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionObservation {
     pub start_id: ProcessStartId,

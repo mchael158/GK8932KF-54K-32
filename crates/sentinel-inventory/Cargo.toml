@@ -1,6 +1,6 @@
 [package]
 name = "sentinel-inventory"
-description = "Inventário de pacotes, executáveis e metadados (Fase 1)"
+description = "Package and executable inventory (Phase 1)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

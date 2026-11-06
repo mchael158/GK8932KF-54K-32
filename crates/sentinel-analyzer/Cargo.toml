@@ -1,6 +1,6 @@
 [package]
 name = "sentinel-analyzer"
-description = "Correlação de anomalias (Fase 5)"
+description = "Anomaly correlation and CLI text reports"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

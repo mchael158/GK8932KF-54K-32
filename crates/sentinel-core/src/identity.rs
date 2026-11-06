@@ -1,14 +1,15 @@
+//! Stable identifier for a process instance (PID reuse safe).
+
 use serde::{Deserialize, Serialize};
 
-/// Identificador estável de uma instância de processo (evita reutilização de PID).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ProcessStartId {
     pub pid: u32,
-    /// Tempo de início do processo em nanosegundos desde boot (clock monotônico do kernel).
+    /// Process start time in nanoseconds since boot (monotonic kernel clock).
     pub start_time_ns: u64,
 }
 
-/// Hash de conteúdo de executável ou biblioteca (hex).
+/// Content hash for a binary or library (hex).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ContentHash {
     pub algorithm: HashAlgorithm,

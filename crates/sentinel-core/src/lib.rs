@@ -1,4 +1,4 @@
-//! Contratos compartilhados entre agente, inventário, profiler e analisador.
+//! Shared types, events, and internal contracts.
 
 mod event;
 mod identity;

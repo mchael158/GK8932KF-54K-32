@@ -1,6 +1,6 @@
-//! Fase 2: hooks execve, clone, exit via Aya.
+//! Phase 2: execve, clone, exit hooks via Aya.
 //!
-//! Compilação cruzada e carregamento exigem kernel Linux e toolchain eBPF.
+//! Cross-compilation and loading require a Linux kernel and eBPF toolchain.
 
 #[cfg(target_os = "linux")]
 pub const SUPPORTED: bool = true;

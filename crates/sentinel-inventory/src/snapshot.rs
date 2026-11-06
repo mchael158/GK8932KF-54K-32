@@ -10,7 +10,9 @@ use crate::scan;
 pub struct CollectOptions {
     pub pacman_db: PathBuf,
     pub scan_roots: Vec<PathBuf>,
+    pub lib_roots: Vec<PathBuf>,
     pub hash_executables: bool,
+    pub scan_libraries: bool,
     pub demo: bool,
 }
 
@@ -19,7 +21,9 @@ impl Default for CollectOptions {
         Self {
             pacman_db: default_pacman_db(),
             scan_roots: default_scan_roots(),
+            lib_roots: default_lib_roots(),
             hash_executables: false,
+            scan_libraries: false,
             demo: false,
         }
     }
@@ -43,6 +47,17 @@ fn default_scan_roots() -> Vec<PathBuf> {
             PathBuf::from("/usr/bin"),
             PathBuf::from("/usr/local/bin"),
         ]
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Vec::new()
+    }
+}
+
+fn default_lib_roots() -> Vec<PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        vec![PathBuf::from("/usr/lib")]
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -90,6 +105,10 @@ pub async fn collect(opts: &CollectOptions) -> Result<InventorySnapshot, Invento
         let packages = crate::pacman::list_local_packages(&opts.pacman_db).await?;
         let mut tracked =
             scan::scan_executables(&opts.scan_roots, opts.hash_executables).await?;
+        if opts.scan_libraries {
+            let mut libs = scan::scan_libraries(&opts.lib_roots, opts.hash_executables).await?;
+            tracked.append(&mut libs);
+        }
         let mut orphan_executables = Vec::new();
         tracked.retain(|exe| {
             if exe.owning_package.is_none() {

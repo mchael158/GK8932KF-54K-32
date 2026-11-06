@@ -5,19 +5,21 @@ mod pacman;
 #[cfg(target_os = "linux")]
 mod scan;
 mod snapshot;
+mod verify;
 
-pub use diff::{compare_snapshots, InventoryDiff, PackageChange};
+pub use diff::{compare_snapshots, ExecutableHashChange, InventoryDiff, PackageChange};
 pub use error::InventoryError;
-pub use snapshot::{CollectOptions, InventorySnapshot, InstalledPackage, TrackedExecutable};
+pub use snapshot::{CollectOptions, InstalledPackage, InventorySnapshot, TrackedExecutable};
+pub use verify::{count_problems, verify_snapshot, VerifyFinding, VerifyStatus};
 
 use std::path::Path;
 
-/// Coleta inventário local (Arch: pacman + varredura de paths configuráveis).
+/// Collect local inventory (Arch: pacman + configured path scans).
 pub async fn collect_snapshot(opts: &CollectOptions) -> Result<InventorySnapshot, InventoryError> {
     snapshot::collect(opts).await
 }
 
-/// Atalho com apenas o caminho do banco pacman (paths e hash padrão).
+/// Shorthand using only the pacman database path (default scan roots and flags).
 pub async fn collect_snapshot_from_db(pacman_db: &Path) -> Result<InventorySnapshot, InventoryError> {
     collect_snapshot(&CollectOptions {
         pacman_db: pacman_db.to_path_buf(),

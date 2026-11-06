@@ -1,6 +1,6 @@
 [package]
 name = "sentinel-agent"
-description = "Agente de monitoramento (espaço de usuário)"
+description = "User-space monitoring agent"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,4 +8,3 @@ license.workspace = true
 [dependencies]
 sentinel-core = { workspace = true }
 tokio = { workspace = true }
-tracing = { workspace = true }

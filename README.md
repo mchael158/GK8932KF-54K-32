@@ -1,62 +1,44 @@
-# GK8932KF-54K-32 — Chronos Sentinel
+# GK8932KF-54K-32
 
-Monitoramento comportamental e de integridade para Linux (prioridade Arch Linux), inspirado em lições do caso XZ Utils (CVE-2024-3094): inventário de pacotes, baseline de execução, hashes e correlação de anomalias.
+Rust CLI (**chronos-sentinel**): pacman inventory, binary and library scans, BLAKE3 hashes, JSON snapshot diff, and on-disk verification. CLI only — no GUI, no Tauri, no embedded database.
 
-## Status
-
-| Fase | Escopo | Estado |
-|------|--------|--------|
-| 1 | Inventário pacman, executáveis, diff, SQLite | Implementado |
-| 2 | Agente eBPF / execve | Esqueleto |
-| 3–6 | Baseline, integridade contínua, correlação, UI | Planejado |
-
-## Requisitos
-
-- Rust 1.76+ (o repositório fixa **MSVC** no Windows via `rust-toolchain.toml`)
-- **Linux / Arch** para inventário real (`pacman`, `/usr/bin`, …)
-- No Windows: use `--demo` ou WSL2/VM Arch para testes completos
+Use real collection on Linux/Arch; use `--demo` on Windows for smoke tests.
 
 ## Build
 
 ```bash
-cargo build --workspace
-cargo test --workspace
+cargo build -p sentinel-cli
 ```
 
-Binário CLI:
+## Commands
 
 ```bash
-cargo run -p sentinel-cli -- --help
+# Inventory
+chronos-sentinel inventory
+chronos-sentinel inventory --hash --libs -o snap.json
+
+# Diff
+chronos-sentinel diff --before a.json --after b.json
+chronos-sentinel diff --before a.json --after b.json --verbose
+
+# Integrity (snapshot must be created with --hash)
+chronos-sentinel verify --snapshot snap.json
+
+# Standalone hash
+chronos-sentinel hash /usr/bin/sshd
+
+# Dev
+chronos-sentinel inventory --demo -o demo.json
 ```
 
-## Uso rápido
+Global flag `--pacman-db` overrides `/var/lib/pacman/local`.
 
-```bash
-# Inventário real (Arch)
-cargo run -p sentinel-cli -- inventory --hash
-
-# Modo demonstração (qualquer OS)
-cargo run -p sentinel-cli -- inventory --demo
-
-# Comparar últimos dois snapshots no banco local
-cargo run -p sentinel-cli -- diff --json
-```
-
-Banco padrão: `chronos-sentinel.db` (ignorado pelo git).
+Persistence is plain JSON you choose (`-o` or `--json`).
 
 ## Crates
 
-| Crate | Função |
-|-------|--------|
-| `sentinel-core` | Tipos e eventos |
-| `sentinel-inventory` | Pacotes, scan, diff |
-| `sentinel-integrity` | BLAKE3 de arquivos |
-| `sentinel-storage` | Persistência SQLite |
-| `sentinel-profiler` | Baseline de latência |
-| `sentinel-analyzer` | Resumo de anomalias |
-| `sentinel-agent` / `sentinel-ebpf` | Monitoramento (futuro) |
-| `sentinel-cli` | `chronos-sentinel` |
+`sentinel-core`, `sentinel-inventory`, `sentinel-integrity`, `sentinel-storage` (JSON I/O), `sentinel-analyzer` (text reports), `sentinel-cli`. Stubs: `agent`, `ebpf`, `profiler`.
 
-## Licença
+## License
 
-Dual-licensed under **MIT OR Apache-2.0** — see `LICENSE-MIT` and `LICENSE-APACHE`.
+MIT OR Apache-2.0 — see `LICENSE-MIT` and `LICENSE-APACHE`.

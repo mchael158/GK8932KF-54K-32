@@ -1,6 +1,6 @@
 [package]
 name = "sentinel-profiler"
-description = "Baseline de latência e estatísticas (Fase 3)"
+description = "Latency baseline and statistics (Phase 3)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
