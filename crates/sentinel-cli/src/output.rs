@@ -10,8 +10,6 @@ pub fn print_inventory_summary(snapshot: &InventorySnapshot, written: Option<&Pa
     );
     if let Some(path) = written {
         eprintln!("Snapshot: {}", path.display());
-    } else {
-        eprintln!("Export with -o file.json or --json");
     }
 }
 

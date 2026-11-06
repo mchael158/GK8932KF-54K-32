@@ -1,8 +1,7 @@
-//! Incremental updates to `ProcessProfile` from observations.
+//! Latency anomaly vs P50 + k·MAD (needs ≥30 samples).
 
 use sentinel_core::{ExecutionObservation, LatencyStats, ProcessProfile};
 
-/// Simple threshold: observed latency above P50 + k * MAD (Phase 3 placeholder).
 pub fn is_latency_anomaly(stats: &LatencyStats, observed_ns: u64, k: f64) -> bool {
     if stats.sample_count < 30 {
         return false;

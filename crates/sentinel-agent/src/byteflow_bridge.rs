@@ -1,4 +1,4 @@
-//! Maps Byteflow [`SecurityEvent`] into Chronos audit records.
+//! Maps `SecurityEvent` to `SentinelEvent` / stderr audit lines.
 
 use byteflow::SecurityEvent;
 use sentinel_core::{ContentHashRef, HashAlgorithm, SentinelEvent};

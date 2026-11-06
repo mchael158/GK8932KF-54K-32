@@ -1,26 +1,20 @@
-//! Phase 2: agent loop, event ingestion, storage/analyzer hooks.
+//! User-space agent: Byteflow runtime + host inventory hooks.
 
-#[cfg(feature = "byteflow")]
 pub mod byteflow_bridge;
+pub mod mitigation;
+pub mod brain;
+pub mod supervisor;
 
-pub async fn run_agent() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    #[cfg(feature = "byteflow")]
-    {
-        eprintln!(
-            "sentinel-agent (byteflow {}): supervisor wiring TBD — use `on`/`off` for inventory today",
-            env!("CARGO_PKG_VERSION")
-        );
-        let _ = byteflow_bridge::SentinelAuditSink::new();
-    }
-    #[cfg(not(feature = "byteflow"))]
-    {
-        eprintln!("sentinel-agent: not implemented yet (Phase 2 — eBPF/execve)");
-        eprintln!("  tip: cargo build -p sentinel-agent --features byteflow");
-    }
-    Ok(())
+pub use brain::{BrainOptions, BrainResult, OpCode};
+
+pub async fn run_agent(
+    opts: BrainOptions,
+    interval_secs: u64,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    brain::run_daemon(opts, interval_secs).await
 }
 
-#[cfg(all(test, feature = "byteflow"))]
+#[cfg(test)]
 mod tests {
     use super::byteflow_bridge::{format_security_event, to_sentinel_event};
     use byteflow::SecurityEvent;

@@ -1,17 +1,17 @@
 [package]
 name = "sentinel-agent"
-description = "User-space monitoring agent"
+description = "Byteflow supervisor and host natives"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
-[features]
-default = []
-byteflow = ["dep:byteflow"]
-
 [dependencies]
 sentinel-core = { workspace = true }
+sentinel-inventory = { workspace = true }
+sentinel-storage = { workspace = true }
+sentinel-analyzer = { workspace = true }
+serde_json = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
-byteflow = { package = "byteflow-actors", version = "0.9.23", optional = true }
+byteflow = { package = "byteflow-actors", version = "0.9.23" }

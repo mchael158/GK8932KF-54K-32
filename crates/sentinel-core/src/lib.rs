@@ -1,4 +1,4 @@
-//! Shared types, events, and internal contracts.
+//! Events, content hashes, process profiles.
 
 mod event;
 mod identity;

@@ -302,7 +302,11 @@ name = "sentinel-agent"
 version = "0.1.0"
 dependencies = [
  "byteflow-actors",
+ "sentinel-analyzer",
  "sentinel-core",
+ "sentinel-inventory",
+ "sentinel-storage",
+ "serde_json",
  "time",
  "tokio",
 ]
