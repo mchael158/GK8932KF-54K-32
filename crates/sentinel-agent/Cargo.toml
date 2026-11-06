@@ -4,7 +4,14 @@ description = "User-space monitoring agent"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+byteflow = ["dep:byteflow"]
 
 [dependencies]
 sentinel-core = { workspace = true }
+time = { workspace = true }
 tokio = { workspace = true }
+byteflow = { package = "byteflow-actors", version = "0.9.23", optional = true }
