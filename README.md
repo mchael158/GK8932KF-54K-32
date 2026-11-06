@@ -1,47 +1,77 @@
 # chronos-sentinel
 
-Pacman inventory, BLAKE3 baselines, diff/verify on Arch Linux. State: `.chronos/*.json` (gitignored). Supervisor: Byteflow `byteflow-actors` 0.9.23 (required).
+Integrity baseline for **Arch Linux**: pacman inventory, BLAKE3 hashes, diff and on-disk verify. Snapshots live under `.chronos/` (gitignored). Policy and scheduling run on **Byteflow** [`byteflow-actors`](https://docs.rs/byteflow-actors) **0.9.23** (hard dependency).
 
-Toolchain: Rust 1.99.1, `rust-toolchain.toml`.
+| Requirement | Value |
+|-------------|--------|
+| OS (production) | Arch Linux + pacman |
+| Rust | 1.99.1 (`rust-toolchain.toml`, MSVC on Windows for dev builds) |
+| Binary | `cargo build -p sentinel-cli` → `chronos-sentinel` |
 
 ## Commands
 
-```text
-chronos-sentinel on [--demo]
-chronos-sentinel off [--demo] [--json] [--mitigate]
+```bash
+chronos-sentinel on   [--demo]
+chronos-sentinel off  [--demo] [--json] [--mitigate]
 chronos-sentinel status
 chronos-sentinel agent [--interval 300] [--demo] [--mitigate]
 ```
 
-`on` → `.chronos/baseline.json`. `off` → `.chronos/last-check.json`, report on stderr, exit `1` on drift (exit `2` without baseline). `--mitigate`: Linux, SIGTERM on `/proc/*/exe` matching changed/orphan paths from diff.
+### `on` / `off` / `status`
 
-While a one-shot subcommand runs, a 60s Byteflow `status` loop shares the process (skipped for `agent`, which runs periodic `off` in the foreground).
+| Step | Files | Output |
+|------|--------|--------|
+| `on` | writes `.chronos/baseline.json` | stderr summary |
+| `off` | writes `.chronos/last-check.json` | diff + verify report on stderr (or JSON with `--json`) |
+| `status` | reads baseline path | whether baseline exists |
 
-## Build
+**Exit codes (`off`):** `0` OK · `1` drift or verify failure · `2` no baseline (run `on` first). With `--demo`, drift does not force exit `1`.
+
+**`off --mitigate` (Linux):** after a dirty diff, send SIGTERM to processes whose `/proc/<pid>/exe` matches executables with hash changes or new orphans from the report.
+
+### Byteflow in this process
+
+- **`on` / `off` / `status`:** one sandboxed flow per invocation (`sentinel_run` native → inventory/diff in Rust).
+- **Heartbeat:** for any subcommand except `agent`, a background task runs Byteflow `status` every **60s** in the same OS process (audit lines on stderr: `audit: …`).
+- **`agent`:** foreground loop — repeated `off` every **300s** by default (systemd-friendly).
+
+## Build & test
 
 ```bash
 cargo build -p sentinel-cli
 cargo test --workspace
 ```
 
-## Manual export (no Byteflow)
+## Inventory CLI (direct crates, no Byteflow)
 
 ```bash
 chronos-sentinel inventory --hash --libs -o snap.json
 chronos-sentinel diff --before a.json --after b.json
 chronos-sentinel verify --snapshot snap.json
-chronos-sentinel hash /path/to/file
+chronos-sentinel hash /usr/bin/sshd
 ```
 
-`--pacman-db` (hidden): pacman local DB path.
+Global hidden flag: `--pacman-db <path>` (default: `/var/lib/pacman/local`).
 
-Override Byteflow crate path in `crates/sentinel-agent/Cargo.toml` if needed.
+To use a local Byteflow tree, edit `crates/sentinel-agent/Cargo.toml`:
 
-## Layout
+```toml
+byteflow = { package = "byteflow-actors", path = "../../../Bytecode/byteflow" }
+```
 
-- `sentinel-cli` — binary
-- `sentinel-agent` — Byteflow brain, mitigation, heartbeat
-- `sentinel-inventory`, `sentinel-integrity`, `sentinel-storage`, `sentinel-analyzer`, `sentinel-core`
-- `sentinel-ebpf`, `sentinel-profiler` — stubs
+## Workspace
 
-MIT OR Apache-2.0
+| Crate | Role |
+|-------|------|
+| `sentinel-cli` | `chronos-sentinel` entrypoint |
+| `sentinel-agent` | Byteflow runtime, mitigation, heartbeat |
+| `sentinel-inventory` | pacman, snapshot, diff, verify |
+| `sentinel-integrity` | BLAKE3 |
+| `sentinel-storage` | JSON I/O |
+| `sentinel-analyzer` | Text reports |
+| `sentinel-core` | Shared types |
+| `sentinel-ebpf`, `sentinel-profiler` | Reserved |
+
+## License
+
+Dual-licensed under **MIT OR Apache-2.0** (`LICENSE-MIT`, `LICENSE-APACHE`).
