@@ -1,124 +1,191 @@
 # chronos-sentinel
 
-Integrity baseline for **Arch Linux**: pacman inventory, BLAKE3 hashes, diff and on-disk verify. Snapshots live under `.chronos/` (gitignored). Policy and scheduling run on **Byteflow** [`byteflow-actors`](https://docs.rs/byteflow-actors) **0.9.23** (hard dependency).
+Pacman integrity baseline for **Arch Linux**: inventory, BLAKE3 hashes, diff, verify. Optional Ed25519 signing, SIEM/webhook export, and conservative process mitigation. **`on` / `off` / `status`** run through **Byteflow** [`byteflow-actors`](https://docs.rs/byteflow-actors) **0.9.23**; collection and diff are plain Rust.
+
+**Production:** Arch + pacman only (v1). **Dev on Windows:** demo data (`try`, `-d`) — no real pacman.
 
 | Requirement | Value |
 |-------------|--------|
 | OS (production) | Arch Linux + pacman |
-| Rust | 1.99.1 (`rust-toolchain.toml`, MSVC on Windows for dev builds) |
-| Binary | `cargo build -p sentinel-cli` → `chronos-sentinel` |
-| State dir | `CHRONOS_STATE_DIR` → `$XDG_STATE_HOME/chronos-sentinel` → `~/.local/state/chronos-sentinel` (Linux) → `.chronos/` (fallback) |
-| Packages | `packaging/aur/PKGBUILD` · GitHub release binaries on tag `v*` |
+| Rust | 1.99.1 (`rust-toolchain.toml`) |
+| Releases | GitHub tag `v*` → Linux/Windows binaries · [`packaging/aur/PKGBUILD`](packaging/aur/PKGBUILD) |
 | Threat model | [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) |
 
-## Commands
+---
 
-```bash
-chronos-sentinel try              # demo: on → status → off (Windows-friendly)
-chronos-sentinel on   [-d|--demo|--dem]
-chronos-sentinel off  [-d] [--json] [--mitigate] [--mitigate-confirm] [--mitigate-dry-run]
-chronos-sentinel status
-chronos-sentinel agent [-d] [--interval 300] [--mitigate ...]
-chronos-sentinel --state-dir /var/lib/chronos-sentinel on
+## How it runs
+
+### Operator flow
+
+```text
+  keygen (once)          on (baseline)              off / agent (compare)
+        │                      │                            │
+        ▼                      ▼                            ▼
+   signing.key            baseline.json               last-check.json
+   signing.pub                 │                     diff + verify (stderr)
+                        baseline.json.sig          optional SIEM / webhook
+                        [optional .json.zst]       exit 0 / 1 / 2
 ```
 
-Run **`chronos-sentinel`** with no subcommand to print a quick-start on stderr.
+1. **`keygen`** — Ed25519 key pair (`signing.key`, `signing.pub.json`).
+2. **`on`** — collect pacman + configured scans → write **baseline**; optionally **sign** and **compress** (`.zst` sidecar).
+3. **`off`** — collect again, diff + verify vs baseline; optional mitigation (audit-first).
+4. **`agent`** — loop: same as `off` every N seconds (use with **systemd**).
 
-### Windows / dev
+Exit codes on **`off`:** `0` clean · `1` drift or verify problems · `2` no baseline. Demo (`-d`) does not force `1` on drift.
 
-Pacman paths do not exist on Windows. Use **`try`** or **`-d`** on `on`/`off`. Without `-d`, the CLI exits with a short hint (exit `2`).
+### Where state and config live
+
+**State directory** (baseline JSON), highest precedence first:
+
+| Order | Source |
+|-------|--------|
+| 1 | `--state-dir` |
+| 2 | `CHRONOS_STATE_DIR` |
+| 3 | `$XDG_STATE_HOME/chronos-sentinel` (Linux) |
+| 4 | `~/.local/state/chronos-sentinel` (Linux) |
+| 5 | `.chronos/` in the current working directory |
+
+Typical files: `baseline.json`, `last-check.json`, `baseline.json.sig`, `baseline.json.zst`.
+
+**Config TOML** (`[inventory]`, `[export]`):
+
+`--config` → `CHRONOS_CONFIG` → `$XDG_CONFIG_HOME/chronos-sentinel/config.toml` → `~/.config/chronos-sentinel/config.toml` → `/etc/chronos-sentinel/config.toml`.
+
+Example: [`packaging/chronos-sentinel.example.toml`](packaging/chronos-sentinel.example.toml).
+
+**Signing key:** `--signing-key` → `CHRONOS_SIGNING_KEY` → XDG → `/etc/chronos-sentinel/signing.key`.
+
+### What goes into the baseline
+
+1. **Pacman** — `pacman -Q` plus `%FILES%` from `/var/lib/pacman/local/*/desc`.
+2. **Scope** — default: **prefix subsets** of `%FILES%` only (`usr/bin/`, `usr/lib/`, `etc/ssh/`, …), not the full file list. Override with `--full-files` or TOML `integrity_prefixes`.
+3. **Supplemental walk** — `scan_roots` / `lib_roots` for orphans (on-disk files not owned by pacman in the tracked set).
+4. **Snapshot JSON** — includes `collection.*` counters and `integrity_scope`.
+
+Inventory (TOML `[inventory]`) is separate from policy (mitigation, export, signing flags on the CLI).
+
+### Architecture (crates)
+
+| Crate | Role |
+|-------|------|
+| `sentinel-inventory` | pacman, snapshot, diff, verify, config |
+| `sentinel-storage` | JSON paths, Ed25519 signing, zstd sidecars |
+| `sentinel-agent` | Byteflow brain, mitigation policy, SIEM/webhook |
+| `sentinel-cli` | `chronos-sentinel` binary |
+
+Byteflow sandboxes the control op only; hashing and diff always run in host Rust.
+
+---
+
+## Installing and invoking the binary
+
+The command **`chronos-sentinel` is not on PATH** until you install it or call the built executable.
+
+### Windows (development)
+
+No pacman — use **`try`** or **`-d`** on `on`/`off`.
 
 ```powershell
+cd path\to\GK8932KF-54K-32
 cargo build -p sentinel-cli
 .\target\debug\chronos-sentinel.exe try
+.\target\debug\chronos-sentinel.exe on -d
+.\target\debug\chronos-sentinel.exe off -d --log-json
 ```
 
-One command per line (do not paste `on`, `status`, `off` on the same line unless separated with `;`).
+Without building first:
 
-### Configuration (inventory TOML)
+```powershell
+cargo run -p sentinel-cli -- try
+```
 
-Inventory paths and scans are configured separately from mitigation policy:
+Optional alias for the current session:
 
-| Source | Precedence |
-|--------|------------|
-| Built-in defaults | lowest |
-| Config file (`[inventory]`) | middle |
-| CLI (`--config`, `--pacman-db`, `--full-files`) | highest |
+```powershell
+Set-Alias chronos-sentinel "$PWD\target\debug\chronos-sentinel.exe"
+```
 
-Search order for config: `--config` → `CHRONOS_CONFIG` → `$XDG_CONFIG_HOME/chronos-sentinel/config.toml` → `~/.config/chronos-sentinel/config.toml` → `/etc/chronos-sentinel/config.toml`.
+Release binary: download `chronos-sentinel-windows-msvc.exe` from [GitHub Releases](https://github.com/mchael158/GK8932KF-54K-32/releases) (tag `v*`), rename to `chronos-sentinel.exe`, add its folder to PATH.
 
-Example: [`packaging/chronos-sentinel.example.toml`](packaging/chronos-sentinel.example.toml) — customize `integrity_prefixes`, `scan_roots`, `lib_roots`, `files_scope`.
+### Arch Linux (production)
 
 ```bash
+# From release tarball or AUR PKGBUILD, or:
+cargo build --release -p sentinel-cli
+sudo install -m755 target/release/chronos-sentinel /usr/local/bin/
+
 sudo install -Dm644 packaging/chronos-sentinel.example.toml /etc/chronos-sentinel/config.toml
-chronos-sentinel on
+sudo mkdir -p /var/lib/chronos-sentinel
+chronos-sentinel keygen --output-dir /etc/chronos-sentinel
+
+export CHRONOS_STATE_DIR=/var/lib/chronos-sentinel
+chronos-sentinel on          # after a known-good system state
+chronos-sentinel off         # ad-hoc check
 ```
 
-### Data collection (Linux)
-
-1. **Pacman** — `pacman -Q` plus `%NAME%`, `%VERSION%`, `%FILES%` from `/var/lib/pacman/local/*/desc` (one indexed pass over the DB).
-2. **Primary hashes** — by default only **prefix subsets** of `%FILES%` (not the full list, on purpose — size): `usr/bin/`, `usr/sbin/`, `usr/local/bin/`, `usr/lib/`, `lib/`, `etc/ssh/`. Use global `--full-files` for every `%FILES%` row. Each in-scope path becomes an artifact even if **missing on disk** (hash when present).
-3. **Supplemental walk** — scan of `/usr/bin`, `/usr/local/bin`, `/usr/lib` for items not already in the pacman-derived set; unowned → `orphan_executables`.
-4. **Snapshot** — JSON includes `collection` (`pacman_file_records`, `integrity_paths_in_db`, `integrity_scope`, `artifacts_hashed`, `artifacts_missing_on_disk`, `bin_scan_orphans`). Diff reports `%FILES%` adds/removes per package (same version included).
-
-`on` / `off` enable hashing and lib scan by default. Demo mode uses synthetic packages only (no disk walk).
-
-### `on` / `off` / `status`
-
-| Step | Files | Output |
-|------|--------|--------|
-| `on` | writes `.chronos/baseline.json` | stderr summary |
-| `off` | writes `.chronos/last-check.json` | diff + verify report on stderr (or JSON with `--json`) |
-| `status` | reads baseline path | whether baseline exists |
-
-**Exit codes (`off`):** `0` OK · `1` drift or verify failure · `2` no baseline (run `on` first). With `--demo`, drift does not force exit `1`.
-
-**Mitigation (Linux):** `--mitigate` evaluates suspicious paths after a dirty diff. **No signals by default** — use `--mitigate-dry-run` for explicit audit-only, or `--mitigate-confirm` to send SIGTERM. Skip PIDs with `--mitigate-allow-pid` / `--mitigate-allow-comm`. See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
-
-### systemd
+**Continuous monitoring:**
 
 ```bash
 sudo install -Dm644 packaging/systemd/chronos-sentinel.service /usr/lib/systemd/system/
-sudo mkdir -p /var/lib/chronos-sentinel
 sudo systemctl enable --now chronos-sentinel.service
 ```
 
-The unit sets `CHRONOS_STATE_DIR=/var/lib/chronos-sentinel` and runs `agent` without destructive mitigation.
+The unit sets `CHRONOS_STATE_DIR=/var/lib/chronos-sentinel` and runs `agent` (default 300s) **without** destructive mitigation.
 
-### Byteflow in this process
+---
 
-- **`on` / `off` / `status`:** one sandboxed flow per invocation (`sentinel_run` native → inventory/diff in Rust).
-- **Heartbeat:** removed from one-shot CLI (was interleaving output). **`agent`** is the long-running Byteflow loop.
-- **`agent`:** foreground loop — repeated `off` every **300s** by default (systemd-friendly).
+## Commands (reference)
 
-### Completions, man, structured logs
+```bash
+chronos-sentinel try
+chronos-sentinel on   [-d|--demo]
+chronos-sentinel off  [-d] [--json] [--log-json] [--mitigate ...]
+chronos-sentinel status
+chronos-sentinel agent [--interval 300] [--mitigate ...]
+chronos-sentinel keygen [--output-dir DIR]
+chronos-sentinel sign-verify [--snapshot PATH]
+chronos-sentinel completions {bash,fish,zsh}
+chronos-sentinel gen-man --output packaging/man/chronos-sentinel.1
+```
 
-- Completions: `chronos-sentinel completions {bash,fish,zsh}` → stdout (see [`docs/OPERATIONS.en.md`](docs/OPERATIONS.en.md) / [`docs/OPERATIONS.pt-BR.md`](docs/OPERATIONS.pt-BR.md)).
-- Man: `packaging/man/chronos-sentinel.1` · regenerate with `chronos-sentinel gen-man --output …`.
-- JSON logs: `--log-json` or `CHRONOS_LOG_JSON=1` (stderr, one object per line; does not replace human reports).
+Run **`chronos-sentinel`** with no subcommand for a quick-start on stderr.
 
-### Baseline signing (Ed25519)
+### Configuration precedence
 
-1. `chronos-sentinel keygen` → `signing.key` + `signing.pub.json`
-2. `chronos-sentinel on` writes `baseline.json` and, when a key is found, `baseline.json.sig` (BLAKE3 + Ed25519)
-3. `chronos-sentinel off` verifies the sidecar when present (override with `--no-verify-signature`)
+| Layer | Applies to |
+|-------|------------|
+| Built-in defaults | inventory scan roots, prefixes |
+| TOML `[inventory]` / `[export]` | paths, SIEM, webhook, compress |
+| CLI globals | `--config`, `--pacman-db`, `--full-files`, `--state-dir`, `--signing-key`, `--siem-file`, `--webhook-url`, `--compress`, signing flags |
 
-Details: [`docs/SIGNING.pt-BR.md`](docs/SIGNING.pt-BR.md). Optional: `CHRONOS_TRUSTED_PUBKEY_HEX`, `--require-sign`, `--require-signed-baseline`, `sign-verify`.
+### Mitigation (Linux)
 
-### Enterprise export (SIEM / webhook / zstd)
+`--mitigate` never sends signals by default. Use `--mitigate-dry-run` or require `--mitigate-confirm` for SIGTERM. Allowlists: `--mitigate-allow-pid`, `--mitigate-allow-comm`. See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 
-`[export]` in config TOML or flags: `--siem-file`, `--webhook-url`, `--webhook-on`, `--compress`. See [`docs/ENTERPRISE.pt-BR.md`](docs/ENTERPRISE.pt-BR.md).
+### Signing (Ed25519)
 
-**Platform:** Arch Linux production only; other distros are out of scope for v1.
+Sidecar `baseline.json.sig` covers BLAKE3(bytes of `baseline.json`) + Ed25519. Defaults: sign on `on` when a key exists; verify on `off` when `.sig` exists. Docs: [`docs/SIGNING.pt-BR.md`](docs/SIGNING.pt-BR.md).
 
-## Build & test
+### Export (SIEM / webhook / zstd)
+
+`[export]` in TOML or `--siem-file`, `--webhook-url`, `--webhook-on {dirty,always,never}`, `--compress`. Webhook/SIEM failures log to stderr and **do not** change scan exit codes. Docs: [`docs/ENTERPRISE.pt-BR.md`](docs/ENTERPRISE.pt-BR.md) · [`docs/CONFIG.pt-BR.md`](docs/CONFIG.pt-BR.md) · [`docs/OPERATIONS.pt-BR.md`](docs/OPERATIONS.pt-BR.md).
+
+### Completions, man, JSON logs
+
+- `--log-json` or `CHRONOS_LOG_JSON=1` — one JSON object per line on stderr (`command_start`, `command_done`, `agent_scan`).
+- Human diff/verify reports stay on stderr unless `off --json` (diff on stdout).
+
+---
+
+## Build and test
 
 ```bash
 cargo build -p sentinel-cli
 cargo test --workspace
 ```
 
-## Inventory CLI (direct crates, no Byteflow)
+### Inventory subcommands (no Byteflow)
 
 ```bash
 chronos-sentinel inventory --hash --libs -o snap.json
@@ -127,26 +194,12 @@ chronos-sentinel verify --snapshot snap.json
 chronos-sentinel hash /usr/bin/sshd
 ```
 
-Global flags: `--config`, `--pacman-db`, `--state-dir`, `--full-files` (see `chronos-sentinel help`).
-
-To use a local Byteflow tree, edit `crates/sentinel-agent/Cargo.toml`:
+### Local Byteflow source
 
 ```toml
+# crates/sentinel-agent/Cargo.toml
 byteflow = { package = "byteflow-actors", path = "../../../Bytecode/byteflow" }
 ```
-
-## Workspace
-
-| Crate | Role |
-|-------|------|
-| `sentinel-cli` | `chronos-sentinel` entrypoint |
-| `sentinel-agent` | Byteflow runtime, mitigation, heartbeat |
-| `sentinel-inventory` | pacman, snapshot, diff, verify |
-| `sentinel-integrity` | BLAKE3 |
-| `sentinel-storage` | JSON I/O |
-| `sentinel-analyzer` | Text reports |
-| `sentinel-core` | Shared types |
-| `sentinel-ebpf`, `sentinel-profiler` | Reserved |
 
 ## License
 
