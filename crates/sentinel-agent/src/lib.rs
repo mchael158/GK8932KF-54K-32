@@ -6,6 +6,7 @@ pub mod mitigation;
 pub mod supervisor;
 
 pub use brain::{BrainOptions, BrainResult, OpCode};
+pub use mitigation::MitigationPolicy;
 
 pub async fn run_agent(
     opts: BrainOptions,
