@@ -1,0 +1,36 @@
+# Maintainer: chronos-sentinel contributors
+# Upstream: https://github.com/mchael158/GK8932KF-54K-32
+pkgname=chronos-sentinel
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Pacman integrity baseline for Arch Linux (BLAKE3, diff, verify)"
+arch=('x86_64')
+url="https://github.com/mchael158/GK8932KF-54K-32"
+license=('MIT' 'Apache')
+depends=('gcc-libs')
+makedepends=('cargo' 'rust')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/mchael158/GK8932KF-54K-32/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$srcdir/GK8932KF-54K-32-$pkgver"
+}
+
+build() {
+  cd "$srcdir/GK8932KF-54K-32-$pkgver"
+  cargo build --release -p sentinel-cli
+}
+
+check() {
+  cd "$srcdir/GK8932KF-54K-32-$pkgver"
+  cargo test --workspace --release
+}
+
+package() {
+  cd "$srcdir/GK8932KF-54K-32-$pkgver"
+  install -Dm755 target/release/chronos-sentinel "$pkgdir/usr/bin/chronos-sentinel"
+  install -Dm644 packaging/systemd/chronos-sentinel.service \
+    "$pkgdir/usr/lib/systemd/system/chronos-sentinel.service"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/chronos-sentinel/README.md"
+  install -Dm644 docs/THREAT_MODEL.md "$pkgdir/usr/share/doc/chronos-sentinel/THREAT_MODEL.md"
+}

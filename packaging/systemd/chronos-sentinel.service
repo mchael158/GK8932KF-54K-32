@@ -1,0 +1,16 @@
+[Unit]
+Description=Chronos Sentinel integrity agent (pacman baseline scans)
+Documentation=https://github.com/mchael158/GK8932KF-54K-32
+After=network.target
+
+[Service]
+Type=simple
+Environment=CHRONOS_STATE_DIR=/var/lib/chronos-sentinel
+ExecStart=/usr/bin/chronos-sentinel agent --interval 300
+Restart=on-failure
+RestartSec=30
+# Mitigation is dry-run by default; add --mitigate --mitigate-confirm only with explicit policy.
+# ExecStart=/usr/bin/chronos-sentinel agent --interval 300 --mitigate --mitigate-dry-run
+
+[Install]
+WantedBy=multi-user.target
