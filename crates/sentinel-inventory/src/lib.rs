@@ -11,8 +11,8 @@ mod snapshot;
 mod verify;
 
 pub use config::{
-    discover_config_path, load_config_file, load_merged_collect_options, ChronosConfigFile,
-    ConfigError, InventoryToml,
+    discover_config_path, load_chronos_config, load_config_file, load_merged_collect_options,
+    ChronosConfigFile, ConfigError, ExportToml, InventoryToml, WebhookWhenToml,
 };
 pub use diff::{compare_snapshots, ExecutableHashChange, InventoryDiff, PackageChange};
 pub use error::InventoryError;

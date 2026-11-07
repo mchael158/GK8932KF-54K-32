@@ -9,9 +9,11 @@ use cli::{Cli, Commands};
 use clap::Parser;
 use output::{print_hash_line, print_inventory_summary};
 use sentinel_analyzer::{format_diff_report, format_verify_report};
+use cli::WebhookWhenArg;
+use sentinel_agent::ExportPolicy;
 use sentinel_inventory::{
-    collect_snapshot, compare_snapshots, discover_config_path, load_merged_collect_options,
-    verify_snapshot, CollectOptions, PacmanFilesScope,
+    collect_snapshot, compare_snapshots, discover_config_path, load_chronos_config, verify_snapshot,
+    CollectOptions, ExportToml, PacmanFilesScope,
 };
 use sentinel_storage::{read_snapshot, verify_snapshot_file, write_keypair, write_snapshot};
 use guide::{print_quickstart, require_demo_on_host};
@@ -77,6 +79,7 @@ fn brain_opts(
     verify_baseline_sig: bool,
     require_signed_baseline: bool,
     signing_key_path: Option<PathBuf>,
+    export: ExportPolicy,
 ) -> sentinel_agent::BrainOptions {
     sentinel_agent::BrainOptions {
         pacman_db: collect.pacman_db.clone(),
@@ -98,7 +101,59 @@ fn brain_opts(
         verify_baseline_sig,
         require_signed_baseline,
         signing_key_path,
+        export,
     }
+}
+
+fn export_policy(cli: &Cli, file: &ExportToml) -> ExportPolicy {
+    use sentinel_agent::WebhookWhen;
+    use sentinel_inventory::WebhookWhenToml;
+    let mut policy = ExportPolicy {
+        siem_file: file.siem_file.clone(),
+        webhook_url: file.webhook_url.clone(),
+        webhook_when: file
+            .webhook_on
+            .unwrap_or(WebhookWhenToml::Dirty)
+            .into(),
+        compress_snapshots: file.compress_snapshots.unwrap_or(false),
+    };
+    if let Some(path) = &cli.siem_file {
+        policy.siem_file = Some(path.clone());
+    }
+    if let Some(url) = &cli.webhook_url {
+        policy.webhook_url = Some(url.clone());
+    }
+    if let Some(w) = cli.webhook_on {
+        policy.webhook_when = match w {
+            WebhookWhenArg::Dirty => WebhookWhen::Dirty,
+            WebhookWhenArg::Always => WebhookWhen::Always,
+            WebhookWhenArg::Never => WebhookWhen::Never,
+        };
+    }
+    if cli.compress {
+        policy.compress_snapshots = true;
+    }
+    if policy.siem_file.is_none() {
+        if let Ok(path) = std::env::var("CHRONOS_SIEM_FILE") {
+            let p = path.trim();
+            if !p.is_empty() {
+                policy.siem_file = Some(PathBuf::from(p));
+            }
+        }
+    }
+    if policy
+        .webhook_url
+        .as_deref()
+        .is_none_or(str::is_empty)
+    {
+        if let Ok(url) = std::env::var("CHRONOS_WEBHOOK_URL") {
+            let u = url.trim();
+            if !u.is_empty() {
+                policy.webhook_url = Some(u.to_string());
+            }
+        }
+    }
+    policy
 }
 
 async fn run_brain(
@@ -112,6 +167,7 @@ async fn run_brain(
     mitigation_policy: MitigationPolicy,
     log_json: bool,
     signing: &SigningCli,
+    export: &ExportPolicy,
 ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>> {
     let result = sentinel_agent::brain::run(
         op,
@@ -129,6 +185,7 @@ async fn run_brain(
             signing.verify_baseline_sig,
             signing.require_signed_baseline,
             signing.signing_key_path.clone(),
+            export.clone(),
         ),
     )
     .await?;
@@ -184,13 +241,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let log_json = log_json::enabled(cli.log_json);
     let signing = signing_from_cli(&cli);
 
-    let mut collect = match load_merged_collect_options(cli.config.as_deref()) {
-        Ok(c) => c,
+    let (mut collect, export_toml) = match load_chronos_config(cli.config.as_deref()) {
+        Ok(pair) => pair,
         Err(e) => {
             eprintln!("{e}");
             std::process::exit(2);
         }
     };
+    let export = export_policy(&cli, &export_toml);
     if let Some(db) = &cli.pacman_db {
         collect.pacman_db = db.clone();
     }
@@ -231,6 +289,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 policy_none.clone(),
                 log_json,
                 &signing,
+                &export,
             )
             .await?;
             if code != 0 {
@@ -248,6 +307,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 policy_none.clone(),
                 log_json,
                 &signing,
+                &export,
             )
             .await?;
             eprintln!("=== try: off (demo) ===");
@@ -265,6 +325,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 policy_none.clone(),
                 log_json,
                 &signing,
+                &export,
             )
             .await?;
             finish(log_json, "try", code);
@@ -282,6 +343,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 policy_none.clone(),
                 log_json,
                 &signing,
+                &export,
             )
             .await?;
             if code != 0 {
@@ -326,6 +388,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 policy,
                 log_json,
                 &signing,
+                &export,
             )
             .await?;
             finish(log_json, "off", code);
@@ -342,6 +405,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 policy_none.clone(),
                 log_json,
                 &signing,
+                &export,
             )
             .await?;
             finish(log_json, "status", code);
@@ -453,6 +517,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     signing.verify_baseline_sig,
                     signing.require_signed_baseline,
                     signing.signing_key_path.clone(),
+                    export.clone(),
                 ),
                 interval,
             )

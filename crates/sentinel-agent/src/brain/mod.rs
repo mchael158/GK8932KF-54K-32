@@ -2,6 +2,7 @@
 
 mod program;
 
+use crate::export::{emit_scan_exports, ExportPolicy};
 use crate::byteflow_bridge::SentinelAuditSink;
 use crate::mitigation::{self, MitigationAction, MitigationPolicy};
 use byteflow::{FlowOutcome, NativeTable, Runtime, RuntimeConfig, Value};
@@ -13,8 +14,8 @@ use sentinel_inventory::{
     collect_snapshot, compare_snapshots, CollectOptions, PacmanFilesScope,
 };
 use sentinel_storage::{
-    discover_signing_key, ensure_state_dir, read_snapshot, sign_snapshot_file, signature_path,
-    verify_snapshot_file, write_snapshot,
+    compress_snapshot_file, discover_signing_key, ensure_state_dir, read_snapshot,
+    sign_snapshot_file, signature_path, verify_snapshot_file, write_snapshot,
 };
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -55,6 +56,7 @@ pub struct BrainOptions {
     /// Reject `off` when baseline has no signature sidecar.
     pub require_signed_baseline: bool,
     pub signing_key_path: Option<PathBuf>,
+    pub export: ExportPolicy,
 }
 
 #[derive(Debug, Default)]
@@ -78,6 +80,7 @@ pub struct BrainState {
     pub verify_baseline_sig: bool,
     pub require_signed_baseline: bool,
     pub signing_key_path: Option<PathBuf>,
+    pub export: ExportPolicy,
     pub baseline: PathBuf,
     pub last_check: PathBuf,
     pub mitigations: Mutex<Vec<MitigationAction>>,
@@ -106,6 +109,7 @@ impl BrainState {
             verify_baseline_sig: opts.verify_baseline_sig,
             require_signed_baseline: opts.require_signed_baseline,
             signing_key_path: opts.signing_key_path.clone(),
+            export: opts.export.clone(),
             baseline: opts.state_dir.join("baseline.json"),
             last_check: opts.state_dir.join("last-check.json"),
             ..Default::default()
@@ -274,6 +278,13 @@ async fn run_host_op_async(op: OpCode, state: &BrainState) -> Result<i32, String
                     None => {}
                 }
             }
+            if state.export.compress_snapshots {
+                if let Err(e) = compress_snapshot_file(&state.baseline) {
+                    if !state.quiet {
+                        eprintln!("compress baseline: {e}");
+                    }
+                }
+            }
             Ok(0)
         }
         OpCode::Off => {
@@ -304,6 +315,9 @@ async fn run_host_op_async(op: OpCode, state: &BrainState) -> Result<i32, String
                 .await
                 .map_err(|e| e.to_string())?;
             write_snapshot(&state.last_check, &current).map_err(|e| e.to_string())?;
+            if state.export.compress_snapshots {
+                let _ = compress_snapshot_file(&state.last_check);
+            }
             let diff = compare_snapshots(&baseline, &current);
             let findings = verify_snapshot_demo_aware(&current, state.demo);
             let mut report = format_diff_report(
@@ -353,7 +367,19 @@ async fn run_host_op_async(op: OpCode, state: &BrainState) -> Result<i32, String
                 || !diff.executables_hash_changed.is_empty()
                 || !diff.orphans_added.is_empty()
                 || count_problems(&findings) > 0;
-            Ok(if dirty && !state.demo { 1 } else { 0 })
+            let exit_code = if dirty && !state.demo { 1 } else { 0 };
+            emit_scan_exports(
+                &state.export,
+                dirty,
+                exit_code,
+                &state.baseline.display().to_string(),
+                &state.last_check.display().to_string(),
+                &diff,
+                &findings,
+                state.quiet,
+            )
+            .await;
+            Ok(exit_code)
         }
         OpCode::Status => {
             let msg = if state.baseline.exists() {

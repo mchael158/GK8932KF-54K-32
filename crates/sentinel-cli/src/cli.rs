@@ -91,8 +91,27 @@ pub struct Cli {
     )]
     pub require_signed_baseline: bool,
 
+    #[arg(long, global = true, help = "Append SIEM JSONL events after each off scan")]
+    pub siem_file: Option<PathBuf>,
+
+    #[arg(long, global = true, help = "HTTPS webhook URL (POST JSON on scan)")]
+    pub webhook_url: Option<String>,
+
+    #[arg(long, global = true, value_enum, help = "When to POST webhook (default: dirty)")]
+    pub webhook_on: Option<WebhookWhenArg>,
+
+    #[arg(long, global = true, help = "Also write baseline/last-check as *.json.zst")]
+    pub compress: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
+}
+
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+pub enum WebhookWhenArg {
+    Dirty,
+    Always,
+    Never,
 }
 
 #[derive(Subcommand)]

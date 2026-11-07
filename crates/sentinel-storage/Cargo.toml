@@ -15,8 +15,10 @@ ed25519-dalek = { workspace = true }
 rand = { workspace = true }
 hex = { workspace = true }
 time = { workspace = true }
+zstd = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
 time = { workspace = true }
 blake3 = { workspace = true }
+zstd = { workspace = true }

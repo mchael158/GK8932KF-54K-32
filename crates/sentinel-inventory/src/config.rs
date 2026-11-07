@@ -25,6 +25,30 @@ pub enum ConfigError {
 pub struct ChronosConfigFile {
     #[serde(default)]
     pub inventory: InventoryToml,
+    #[serde(default)]
+    pub export: ExportToml,
+}
+
+/// `[export]` — SIEM JSONL, webhooks, ZSTD sidecars (policy / egress).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ExportToml {
+    #[serde(default)]
+    pub siem_file: Option<PathBuf>,
+    #[serde(default)]
+    pub webhook_url: Option<String>,
+    #[serde(default)]
+    pub webhook_on: Option<WebhookWhenToml>,
+    #[serde(default)]
+    pub compress_snapshots: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WebhookWhenToml {
+    #[default]
+    Dirty,
+    Always,
+    Never,
 }
 
 /// `[inventory]` — pacman paths, scans, `%FILES%` scope.
@@ -126,21 +150,44 @@ pub fn load_config_file(path: &Path) -> Result<ChronosConfigFile, ConfigError> {
     })
 }
 
-pub fn load_merged_collect_options(explicit_config: Option<&Path>) -> Result<CollectOptions, ConfigError> {
+pub fn load_chronos_config(explicit_config: Option<&Path>) -> Result<(CollectOptions, ExportToml), ConfigError> {
     let mut opts = CollectOptions::default();
+    let mut export = ExportToml::default();
     let path = explicit_config
         .map(|p| p.to_path_buf())
         .or_else(discover_config_path);
     if let Some(path) = path {
         let file = load_config_file(&path)?;
         file.inventory.apply_to(&mut opts);
+        export = file.export;
     }
-    Ok(opts)
+    Ok((opts, export))
+}
+
+pub fn load_merged_collect_options(explicit_config: Option<&Path>) -> Result<CollectOptions, ConfigError> {
+    Ok(load_chronos_config(explicit_config)?.0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_export_section() {
+        let raw = r#"
+[export]
+siem_file = "/var/log/siem.jsonl"
+webhook_url = "https://example/hook"
+webhook_on = "always"
+compress_snapshots = true
+"#;
+        let file: ChronosConfigFile = toml::from_str(raw).unwrap();
+        assert_eq!(
+            file.export.siem_file.as_deref().map(|p| p.to_str().unwrap()),
+            Some("/var/log/siem.jsonl")
+        );
+        assert!(file.export.compress_snapshots.unwrap());
+    }
 
     #[test]
     fn parses_inventory_section() {

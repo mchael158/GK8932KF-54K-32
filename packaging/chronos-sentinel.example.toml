@@ -24,3 +24,9 @@ integrity_prefixes = [
 
 scan_roots = ["/usr/bin", "/usr/local/bin", "/usr/sbin"]
 lib_roots = ["/usr/lib", "/lib"]
+
+[export]
+siem_file = "/var/log/chronos/siem.jsonl"
+webhook_url = "https://example.invalid/hooks/chronos"
+webhook_on = "dirty"   # dirty | always | never
+compress_snapshots = true

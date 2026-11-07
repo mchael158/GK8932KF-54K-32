@@ -14,4 +14,6 @@ sentinel-analyzer = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
 byteflow = { package = "byteflow-actors", version = "0.9.23" }

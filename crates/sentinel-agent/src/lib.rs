@@ -1,11 +1,13 @@
 //! User-space agent: Byteflow runtime + host inventory hooks.
 
 pub mod brain;
+pub mod export;
 pub mod byteflow_bridge;
 pub mod mitigation;
 pub mod supervisor;
 
 pub use brain::{BrainOptions, BrainResult, OpCode};
+pub use export::{ExportPolicy, WebhookWhen};
 pub use mitigation::MitigationPolicy;
 
 pub async fn run_agent(

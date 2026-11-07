@@ -105,6 +105,12 @@ The unit sets `CHRONOS_STATE_DIR=/var/lib/chronos-sentinel` and runs `agent` wit
 
 Details: [`docs/SIGNING.pt-BR.md`](docs/SIGNING.pt-BR.md). Optional: `CHRONOS_TRUSTED_PUBKEY_HEX`, `--require-sign`, `--require-signed-baseline`, `sign-verify`.
 
+### Enterprise export (SIEM / webhook / zstd)
+
+`[export]` in config TOML or flags: `--siem-file`, `--webhook-url`, `--webhook-on`, `--compress`. See [`docs/ENTERPRISE.pt-BR.md`](docs/ENTERPRISE.pt-BR.md).
+
+**Platform:** Arch Linux production only; other distros are out of scope for v1.
+
 ## Build & test
 
 ```bash
