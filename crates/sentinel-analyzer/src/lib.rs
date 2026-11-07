@@ -84,6 +84,12 @@ pub fn format_diff_report(before_label: &str, after_label: &str, diff: &Inventor
                 "  {}  {} -> {}",
                 ch.name, ch.old_version, ch.new_version
             );
+            for f in ch.files_added.iter().take(8) {
+                let _ = writeln!(out, "    + {f}");
+            }
+            for f in ch.files_removed.iter().take(8) {
+                let _ = writeln!(out, "    - {f}");
+            }
         }
     }
     if !diff.executables_hash_changed.is_empty() {

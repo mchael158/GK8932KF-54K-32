@@ -1,6 +1,6 @@
 [package]
 name = "sentinel-inventory"
-description = "Package and executable inventory (Phase 1)"
+description = "Pacman inventory, FILE-backed hashing, diff/verify"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

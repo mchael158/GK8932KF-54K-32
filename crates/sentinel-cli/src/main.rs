@@ -5,7 +5,7 @@ mod state;
 use clap::{Parser, Subcommand};
 use output::{print_hash_line, print_inventory_summary};
 use sentinel_analyzer::{format_diff_report, format_verify_report};
-use sentinel_inventory::{collect_snapshot, compare_snapshots, verify_snapshot, CollectOptions};
+use sentinel_inventory::{collect_snapshot, compare_snapshots, verify_snapshot, CollectOptions, PacmanFilesScope};
 use sentinel_storage::{read_snapshot, write_snapshot};
 use guide::{print_quickstart, require_demo_on_host};
 use state::{baseline_missing_message, baseline_path, print_off_header};
@@ -17,6 +17,7 @@ fn brain_opts(
     mitigate: bool,
     json: bool,
     quiet: bool,
+    files_scope: PacmanFilesScope,
 ) -> sentinel_agent::BrainOptions {
     sentinel_agent::BrainOptions {
         pacman_db,
@@ -24,6 +25,7 @@ fn brain_opts(
         mitigate,
         json,
         quiet,
+        files_scope,
     }
 }
 
@@ -34,10 +36,11 @@ async fn run_brain(
     mitigate: bool,
     json: bool,
     quiet: bool,
+    files_scope: PacmanFilesScope,
 ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>> {
     let result = sentinel_agent::brain::run(
         op,
-        brain_opts(pacman_db, demo, mitigate, json, quiet),
+        brain_opts(pacman_db, demo, mitigate, json, quiet, files_scope),
     )
     .await?;
     Ok(result.exit_code)
@@ -56,6 +59,13 @@ struct Cli {
 
     #[arg(long, global = true, hide = true, help = "Pacman local database path")]
     pacman_db: Option<PathBuf>,
+
+    #[arg(
+        long,
+        global = true,
+        help = "Track every %FILES% path (default: usr/bin, usr/lib, etc/ssh, … prefixes only)"
+    )]
+    full_files: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -137,6 +147,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .unwrap_or_else(|| CollectOptions::default().pacman_db);
 
     let quiet = !cli.verbose;
+    let files_scope = if cli.full_files {
+        PacmanFilesScope::AllPackageFiles
+    } else {
+        PacmanFilesScope::IntegrityPrefixes
+    };
 
     let Some(command) = cli.command else {
         print_quickstart();
@@ -153,6 +168,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 false,
                 false,
                 false,
+                files_scope,
             )
             .await?;
             if code != 0 {
@@ -166,6 +182,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 false,
                 false,
                 true,
+                files_scope,
             )
             .await?;
             eprintln!("=== try: off (demo) ===");
@@ -179,15 +196,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 false,
                 json,
                 quiet,
+                files_scope,
             )
             .await?;
             std::process::exit(code);
         }
         Commands::On { demo } => {
             require_demo_on_host(demo, "on");
-            let code =
-                run_brain(sentinel_agent::OpCode::On, pacman_db, demo, false, false, quiet)
-                    .await?;
+            let code = run_brain(
+                sentinel_agent::OpCode::On,
+                pacman_db,
+                demo,
+                false,
+                false,
+                quiet,
+                files_scope,
+            )
+            .await?;
             if code != 0 {
                 std::process::exit(code);
             }
@@ -205,9 +230,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             if !json {
                 print_off_header();
             }
-            let code =
-                run_brain(sentinel_agent::OpCode::Off, pacman_db, demo, mitigate, json, quiet)
-                    .await?;
+            let code = run_brain(
+                sentinel_agent::OpCode::Off,
+                pacman_db,
+                demo,
+                mitigate,
+                json,
+                quiet,
+                files_scope,
+            )
+            .await?;
             std::process::exit(code);
         }
         Commands::Status => {
@@ -218,6 +250,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 false,
                 false,
                 quiet,
+                files_scope,
             )
             .await?;
             if code != 0 {
@@ -237,6 +270,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 hash_executables: hash,
                 scan_libraries: libs,
                 demo,
+                files_scope,
                 ..CollectOptions::default()
             };
             let snapshot = collect_snapshot(&opts).await?;
@@ -306,7 +340,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             mitigate,
         } => {
             sentinel_agent::run_agent(
-                brain_opts(pacman_db, demo, mitigate, false, quiet),
+                brain_opts(pacman_db, demo, mitigate, false, quiet, files_scope),
                 interval,
             )
             .await?;

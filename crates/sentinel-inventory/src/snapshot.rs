@@ -1,3 +1,4 @@
+use crate::scope::PacmanFilesScope;
 use crate::InventoryError;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -13,6 +14,8 @@ pub struct CollectOptions {
     pub lib_roots: Vec<PathBuf>,
     pub hash_executables: bool,
     pub scan_libraries: bool,
+    /// Default [`PacmanFilesScope::IntegrityPrefixes`] — not full `%FILES%` (size).
+    pub files_scope: PacmanFilesScope,
     pub demo: bool,
 }
 
@@ -22,8 +25,9 @@ impl Default for CollectOptions {
             pacman_db: default_pacman_db(),
             scan_roots: default_scan_roots(),
             lib_roots: default_lib_roots(),
-            hash_executables: false,
-            scan_libraries: false,
+            hash_executables: true,
+            scan_libraries: true,
+            files_scope: PacmanFilesScope::default(),
             demo: false,
         }
     }
@@ -67,10 +71,13 @@ pub struct CollectionMeta {
     pub pacman_packages: usize,
     /// Total paths listed under `%FILES%` across packages.
     pub pacman_file_records: usize,
-    /// Subset of `%FILES%` under bin/lib/etc/ssh prefixes.
+    /// Subset of `%FILES%` selected by `files_scope` (prefixes or all).
     pub integrity_paths_in_db: usize,
+    pub integrity_scope: String,
     pub artifacts_tracked: usize,
     pub artifacts_hashed: usize,
+    /// Relevant `%FILES%` paths that were not present on disk at collect time.
+    pub artifacts_missing_on_disk: usize,
     pub bin_scan_orphans: usize,
 }
 
@@ -119,13 +126,14 @@ pub async fn collect(opts: &CollectOptions) -> Result<InventorySnapshot, Invento
 
     #[cfg(target_os = "linux")]
     {
-        use crate::collect_pacman::{artifacts_from_package_files, count_relevant_file_entries};
+        use crate::collect_pacman::{artifacts_from_package_files, count_scoped_file_entries};
         use std::collections::HashSet;
 
         let packages = crate::pacman::list_local_packages(&opts.pacman_db).await?;
         let hash_files = opts.hash_executables;
+        let scope = opts.files_scope;
 
-        let mut tracked = artifacts_from_package_files(&packages, hash_files).await?;
+        let mut tracked = artifacts_from_package_files(&packages, hash_files, scope).await?;
         let mut seen: HashSet<String> = tracked.iter().map(|t| t.path.clone()).collect();
         let mut orphan_executables = Vec::new();
 
@@ -160,13 +168,21 @@ pub async fn collect(opts: &CollectOptions) -> Result<InventorySnapshot, Invento
             .chain(orphan_executables.iter())
             .filter(|t| t.content_hash.is_some())
             .count();
+        let missing_on_disk = tracked
+            .iter()
+            .filter(|t| {
+                t.owning_package.is_some() && !std::path::Path::new(&t.path).is_file()
+            })
+            .count();
 
         let collection = CollectionMeta {
             pacman_packages: packages.len(),
             pacman_file_records: packages.iter().map(|p| p.installed_files.len()).sum(),
-            integrity_paths_in_db: count_relevant_file_entries(&packages),
+            integrity_paths_in_db: count_scoped_file_entries(&packages, scope),
+            integrity_scope: scope.as_str().into(),
             artifacts_tracked: tracked.len() + orphan_executables.len(),
             artifacts_hashed: hashed,
+            artifacts_missing_on_disk: missing_on_disk,
             bin_scan_orphans: orphan_executables.len(),
         };
 
@@ -196,14 +212,24 @@ fn demo_snapshot() -> InventorySnapshot {
                 installed_files: vec!["usr/bin/sshd".into()],
             },
         ],
-        tracked_executables: vec![TrackedExecutable {
-            path: "/usr/bin/sshd".into(),
-            owning_package: Some("openssh".into()),
-            content_hash: Some(ContentHash {
-                algorithm: HashAlgorithm::Blake3,
-                hex: "demo_sshd_hash".into(),
-            }),
-        }],
+        tracked_executables: vec![
+            TrackedExecutable {
+                path: "/usr/lib/liblzma.so.5".into(),
+                owning_package: Some("xz".into()),
+                content_hash: Some(ContentHash {
+                    algorithm: HashAlgorithm::Blake3,
+                    hex: "demo_lzma_hash".into(),
+                }),
+            },
+            TrackedExecutable {
+                path: "/usr/bin/sshd".into(),
+                owning_package: Some("openssh".into()),
+                content_hash: Some(ContentHash {
+                    algorithm: HashAlgorithm::Blake3,
+                    hex: "demo_sshd_hash".into(),
+                }),
+            },
+        ],
         orphan_executables: vec![TrackedExecutable {
             path: "/usr/local/bin/custom-tool".into(),
             owning_package: None,
@@ -213,8 +239,10 @@ fn demo_snapshot() -> InventorySnapshot {
             pacman_packages: 2,
             pacman_file_records: 2,
             integrity_paths_in_db: 2,
-            artifacts_tracked: 2,
-            artifacts_hashed: 1,
+            integrity_scope: PacmanFilesScope::IntegrityPrefixes.as_str().into(),
+            artifacts_tracked: 3,
+            artifacts_hashed: 2,
+            artifacts_missing_on_disk: 2,
             bin_scan_orphans: 1,
         },
     }

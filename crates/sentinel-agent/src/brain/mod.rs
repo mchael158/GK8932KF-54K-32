@@ -10,7 +10,7 @@ use sentinel_analyzer::{format_diff_report, format_verify_report};
 use sentinel_inventory::count_problems;
 use sentinel_inventory::verify_snapshot_demo_aware;
 use sentinel_inventory::{
-    collect_snapshot, compare_snapshots, CollectOptions,
+    collect_snapshot, compare_snapshots, CollectOptions, PacmanFilesScope,
 };
 use sentinel_storage::{read_snapshot, write_snapshot};
 use std::path::PathBuf;
@@ -32,6 +32,8 @@ pub struct BrainOptions {
     pub json: bool,
     /// Suppress user-facing stderr and Byteflow audit lines (heartbeat / background).
     pub quiet: bool,
+    /// Default [`PacmanFilesScope::IntegrityPrefixes`]; set [`PacmanFilesScope::AllPackageFiles`] for full `%FILES%`.
+    pub files_scope: PacmanFilesScope,
 }
 
 #[derive(Debug, Default)]
@@ -41,6 +43,7 @@ pub struct BrainState {
     pub mitigate: bool,
     pub json: bool,
     pub quiet: bool,
+    pub files_scope: PacmanFilesScope,
     pub baseline: PathBuf,
     pub last_check: PathBuf,
     pub mitigations: Mutex<Vec<MitigationAction>>,
@@ -55,6 +58,7 @@ impl BrainState {
             mitigate: opts.mitigate,
             json: opts.json,
             quiet: opts.quiet,
+            files_scope: opts.files_scope,
             baseline: PathBuf::from(".chronos/baseline.json"),
             last_check: PathBuf::from(".chronos/last-check.json"),
             ..Default::default()
@@ -172,6 +176,7 @@ async fn run_host_op_async(op: OpCode, state: &BrainState) -> Result<i32, String
         hash_executables: true,
         scan_libraries: true,
         demo: state.demo,
+        files_scope: state.files_scope,
         ..CollectOptions::default()
     };
 
@@ -182,12 +187,14 @@ async fn run_host_op_async(op: OpCode, state: &BrainState) -> Result<i32, String
                 .map_err(|e| e.to_string())?;
             write_snapshot(&state.baseline, &snap).map_err(|e| e.to_string())?;
             let msg = format!(
-                "ON baseline {} — {} packages, {} artifacts ({} hashed, {} from pacman FILES prefixes, {} orphans from bin scan)",
+                "ON baseline {} — {} packages, {} artifacts ({} hashed, {} missing on disk, {} %FILES% rows in scope [{}], {} orphans from bin scan)",
                 state.baseline.display(),
                 snap.packages.len(),
                 snap.collection.artifacts_tracked,
                 snap.collection.artifacts_hashed,
+                snap.collection.artifacts_missing_on_disk,
                 snap.collection.integrity_paths_in_db,
+                snap.collection.integrity_scope,
                 snap.collection.bin_scan_orphans,
             );
             *state.last_report.lock().expect("report") = msg.clone();

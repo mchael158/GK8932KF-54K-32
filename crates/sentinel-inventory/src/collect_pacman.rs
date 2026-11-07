@@ -1,17 +1,7 @@
 //! Build tracked artifacts from pacman `%FILES%` (primary integrity surface).
 
+use crate::scope::{package_file_in_scope, PacmanFilesScope};
 use crate::{InstalledPackage, InventoryError, TrackedExecutable};
-
-/// Paths worth hashing (binaries, libs, critical ssh config tree).
-pub fn integrity_relevant_rel_path(rel: &str) -> bool {
-    let rel = rel.trim_start_matches('/');
-    rel.starts_with("usr/bin/")
-        || rel.starts_with("usr/sbin/")
-        || rel.starts_with("usr/local/bin/")
-        || rel.starts_with("usr/lib/")
-        || rel.starts_with("lib/")
-        || rel.starts_with("etc/ssh/")
-}
 
 pub fn pacman_rel_to_abs(rel: &str) -> std::path::PathBuf {
     std::path::PathBuf::from("/").join(rel.trim_start_matches('/'))
@@ -20,19 +10,21 @@ pub fn pacman_rel_to_abs(rel: &str) -> std::path::PathBuf {
 pub async fn artifacts_from_package_files(
     packages: &[InstalledPackage],
     hash_files: bool,
+    scope: PacmanFilesScope,
 ) -> Result<Vec<TrackedExecutable>, InventoryError> {
     let mut out = Vec::new();
     for pkg in packages {
         for rel in &pkg.installed_files {
-            if !integrity_relevant_rel_path(rel) {
+            if !package_file_in_scope(rel, scope) {
                 continue;
             }
             let path = pacman_rel_to_abs(rel);
-            if !path.is_file() {
-                continue;
-            }
-            let content_hash = if hash_files {
-                sentinel_integrity::hash_file_blake3(&path).ok()
+            let content_hash = if path.is_file() {
+                if hash_files {
+                    sentinel_integrity::hash_file_blake3(&path).ok()
+                } else {
+                    None
+                }
             } else {
                 None
             };
@@ -46,11 +38,11 @@ pub async fn artifacts_from_package_files(
     Ok(out)
 }
 
-pub fn count_relevant_file_entries(packages: &[InstalledPackage]) -> usize {
+pub fn count_scoped_file_entries(packages: &[InstalledPackage], scope: PacmanFilesScope) -> usize {
     packages
         .iter()
         .flat_map(|p| p.installed_files.iter())
-        .filter(|rel| integrity_relevant_rel_path(rel))
+        .filter(|rel| package_file_in_scope(rel, scope))
         .count()
 }
 
@@ -59,10 +51,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn relevant_paths() {
-        assert!(integrity_relevant_rel_path("usr/lib/liblzma.so.5"));
-        assert!(integrity_relevant_rel_path("usr/bin/sshd"));
-        assert!(!integrity_relevant_rel_path("usr/share/doc/xz/README"));
+    fn prefix_scope_excludes_doc() {
+        assert!(package_file_in_scope(
+            "usr/lib/liblzma.so.5",
+            PacmanFilesScope::IntegrityPrefixes
+        ));
+        assert!(!package_file_in_scope(
+            "usr/share/doc/xz/README",
+            PacmanFilesScope::IntegrityPrefixes
+        ));
+        assert!(package_file_in_scope(
+            "usr/share/doc/xz/README",
+            PacmanFilesScope::AllPackageFiles
+        ));
     }
 
     #[test]

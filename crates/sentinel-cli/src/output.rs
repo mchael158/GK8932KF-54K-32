@@ -11,9 +11,14 @@ pub fn print_inventory_summary(snapshot: &InventorySnapshot, written: Option<&Pa
     );
     if c.pacman_packages > 0 {
         eprintln!(
-            "Collection: {} pacman file records, {} integrity paths in DB, {} hashed",
+            "Collection: {} pacman file records, {} in scope [{}], {} hashed",
             c.pacman_file_records,
             c.integrity_paths_in_db,
+            if c.integrity_scope.is_empty() {
+                "integrity_prefixes"
+            } else {
+                c.integrity_scope.as_str()
+            },
             c.artifacts_hashed,
         );
     }

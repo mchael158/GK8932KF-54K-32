@@ -18,6 +18,10 @@ pub struct PackageChange {
     pub name: String,
     pub old_version: String,
     pub new_version: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files_added: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files_removed: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,13 +49,27 @@ pub fn compare_snapshots(before: &InventorySnapshot, after: &InventorySnapshot) 
         .iter()
         .filter_map(|a| {
             let b = before.packages.iter().find(|b| b.name == a.name)?;
-            if b.version == a.version {
+            let files_added: Vec<String> = a
+                .installed_files
+                .iter()
+                .filter(|f| !b.installed_files.iter().any(|x| x == *f))
+                .cloned()
+                .collect();
+            let files_removed: Vec<String> = b
+                .installed_files
+                .iter()
+                .filter(|f| !a.installed_files.iter().any(|x| x == *f))
+                .cloned()
+                .collect();
+            if b.version == a.version && files_added.is_empty() && files_removed.is_empty() {
                 return None;
             }
             Some(PackageChange {
                 name: a.name.clone(),
                 old_version: b.version.clone(),
                 new_version: a.version.clone(),
+                files_added,
+                files_removed,
             })
         })
         .collect();
@@ -144,5 +162,34 @@ mod diff_tests {
         let diff = compare_snapshots(&before, &after);
         assert_eq!(diff.packages_changed.len(), 1);
         assert_eq!(diff.packages_changed[0].old_version, "5.4.6-1");
+    }
+
+    #[test]
+    fn diff_detects_installed_files_change_same_version() {
+        let before = InventorySnapshot {
+            collected_at: OffsetDateTime::now_utc(),
+            packages: vec![InstalledPackage {
+                name: "xz".into(),
+                version: "5.6.0-1".into(),
+                installed_files: vec!["usr/bin/xz".into()],
+            }],
+            tracked_executables: vec![],
+            orphan_executables: vec![],
+            collection: CollectionMeta::default(),
+        };
+        let after = InventorySnapshot {
+            collected_at: OffsetDateTime::now_utc(),
+            packages: vec![InstalledPackage {
+                name: "xz".into(),
+                version: "5.6.0-1".into(),
+                installed_files: vec!["usr/bin/xz".into(), "usr/lib/liblzma.so.5".into()],
+            }],
+            tracked_executables: vec![],
+            orphan_executables: vec![],
+            collection: CollectionMeta::default(),
+        };
+        let diff = compare_snapshots(&before, &after);
+        assert_eq!(diff.packages_changed.len(), 1);
+        assert!(diff.packages_changed[0].files_added.contains(&"usr/lib/liblzma.so.5".into()));
     }
 }

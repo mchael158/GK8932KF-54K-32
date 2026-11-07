@@ -1,9 +1,9 @@
-#[cfg(target_os = "linux")]
 mod collect_pacman;
 mod diff;
 mod error;
 #[cfg(target_os = "linux")]
 mod pacman;
+mod scope;
 #[cfg(target_os = "linux")]
 mod scan;
 mod snapshot;
@@ -11,6 +11,7 @@ mod verify;
 
 pub use diff::{compare_snapshots, ExecutableHashChange, InventoryDiff, PackageChange};
 pub use error::InventoryError;
+pub use scope::{PacmanFilesScope, INTEGRITY_PREFIXES};
 pub use snapshot::{CollectOptions, CollectionMeta, InstalledPackage, InventorySnapshot, TrackedExecutable};
 pub use verify::{count_problems, verify_snapshot, verify_snapshot_demo_aware, VerifyFinding, VerifyStatus};
 

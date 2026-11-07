@@ -34,9 +34,9 @@ One command per line (do not paste `on`, `status`, `off` on the same line unless
 ### Data collection (Linux)
 
 1. **Pacman** — `pacman -Q` plus `%NAME%`, `%VERSION%`, `%FILES%` from `/var/lib/pacman/local/*/desc` (one indexed pass over the DB).
-2. **Primary hashes** — for each relevant `%FILES%` path (`usr/bin`, `usr/sbin`, `usr/local/bin`, `usr/lib`, `lib`, `etc/ssh`), if the file exists on disk → BLAKE3 and owner = package name (no per-file `pacman -Qo`).
-3. **Supplemental walk** — optional scan of `/usr/bin`, `/usr/local/bin`, `/usr/lib` for executables/libs **not** already covered; unowned hits → `orphan_executables`.
-4. **Snapshot** — JSON includes `collection` stats (`pacman_file_records`, `integrity_paths_in_db`, `artifacts_hashed`, `bin_scan_orphans`).
+2. **Primary hashes** — by default only **prefix subsets** of `%FILES%` (not the full list, on purpose — size): `usr/bin/`, `usr/sbin/`, `usr/local/bin/`, `usr/lib/`, `lib/`, `etc/ssh/`. Use global `--full-files` for every `%FILES%` row. Each in-scope path becomes an artifact even if **missing on disk** (hash when present).
+3. **Supplemental walk** — scan of `/usr/bin`, `/usr/local/bin`, `/usr/lib` for items not already in the pacman-derived set; unowned → `orphan_executables`.
+4. **Snapshot** — JSON includes `collection` (`pacman_file_records`, `integrity_paths_in_db`, `integrity_scope`, `artifacts_hashed`, `artifacts_missing_on_disk`, `bin_scan_orphans`). Diff reports `%FILES%` adds/removes per package (same version included).
 
 `on` / `off` enable hashing and lib scan by default. Demo mode uses synthetic packages only (no disk walk).
 
