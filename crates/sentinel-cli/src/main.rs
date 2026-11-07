@@ -8,8 +8,25 @@ use sentinel_analyzer::{format_diff_report, format_verify_report};
 use sentinel_inventory::{collect_snapshot, compare_snapshots, verify_snapshot, CollectOptions, PacmanFilesScope};
 use sentinel_storage::{read_snapshot, write_snapshot};
 use guide::{print_quickstart, require_demo_on_host};
-use state::{baseline_missing_message, baseline_path, print_off_header};
+use state::{baseline_missing_message, baseline_path, print_off_header, state_dir};
+use std::collections::HashSet;
 use std::path::PathBuf;
+use sentinel_agent::MitigationPolicy;
+
+fn mitigation_policy(
+    mitigate: bool,
+    dry_run: bool,
+    confirm: bool,
+    allow_pids: &[u32],
+    allow_comm: &[String],
+) -> MitigationPolicy {
+    MitigationPolicy {
+        dry_run: dry_run || (mitigate && !confirm),
+        confirmed: confirm,
+        allow_pids: allow_pids.iter().copied().collect::<HashSet<_>>(),
+        allow_comm: allow_comm.to_vec(),
+    }
+}
 
 fn brain_opts(
     pacman_db: PathBuf,
@@ -18,6 +35,8 @@ fn brain_opts(
     json: bool,
     quiet: bool,
     files_scope: PacmanFilesScope,
+    state_dir: PathBuf,
+    mitigation_policy: MitigationPolicy,
 ) -> sentinel_agent::BrainOptions {
     sentinel_agent::BrainOptions {
         pacman_db,
@@ -26,6 +45,8 @@ fn brain_opts(
         json,
         quiet,
         files_scope,
+        state_dir,
+        mitigation_policy,
     }
 }
 
@@ -37,10 +58,21 @@ async fn run_brain(
     json: bool,
     quiet: bool,
     files_scope: PacmanFilesScope,
+    state_dir: PathBuf,
+    mitigation_policy: MitigationPolicy,
 ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>> {
     let result = sentinel_agent::brain::run(
         op,
-        brain_opts(pacman_db, demo, mitigate, json, quiet, files_scope),
+        brain_opts(
+            pacman_db,
+            demo,
+            mitigate,
+            json,
+            quiet,
+            files_scope,
+            state_dir,
+            mitigation_policy,
+        ),
     )
     .await?;
     Ok(result.exit_code)
@@ -67,6 +99,13 @@ struct Cli {
     )]
     full_files: bool,
 
+    #[arg(
+        long,
+        global = true,
+        help = "Override state directory (else CHRONOS_STATE_DIR, XDG, or .chronos/)"
+    )]
+    state_dir: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -91,9 +130,17 @@ enum Commands {
         json: bool,
         #[arg(
             long,
-            help = "SIGTERM processes whose exe matches suspicious paths (Linux)"
+            help = "Evaluate process mitigation for suspicious paths (Linux; dry-run unless --mitigate-confirm)"
         )]
         mitigate: bool,
+        #[arg(long, help = "Only report PIDs that would be signaled (never kill)")]
+        mitigate_dry_run: bool,
+        #[arg(long, help = "Actually send SIGTERM after --mitigate (destructive)")]
+        mitigate_confirm: bool,
+        #[arg(long, value_name = "PID", action = clap::ArgAction::Append)]
+        mitigate_allow_pid: Vec<u32>,
+        #[arg(long, value_name = "COMM", action = clap::ArgAction::Append)]
+        mitigate_allow_comm: Vec<String>,
     },
     /// Show baseline path / ON state
     Status,
@@ -134,8 +181,16 @@ enum Commands {
         interval: u64,
         #[arg(long, short = 'd', visible_alias = "dem", help = "demo snapshot")]
         demo: bool,
-        #[arg(long, help = "SIGTERM on suspicious exe paths during each scan")]
+        #[arg(long, help = "Evaluate mitigation each scan (dry-run unless --mitigate-confirm)")]
         mitigate: bool,
+        #[arg(long, help = "Only report PIDs that would be signaled")]
+        mitigate_dry_run: bool,
+        #[arg(long, help = "Actually send SIGTERM (destructive)")]
+        mitigate_confirm: bool,
+        #[arg(long, value_name = "PID", action = clap::ArgAction::Append)]
+        mitigate_allow_pid: Vec<u32>,
+        #[arg(long, value_name = "COMM", action = clap::ArgAction::Append)]
+        mitigate_allow_comm: Vec<String>,
     },
 }
 
@@ -152,6 +207,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     } else {
         PacmanFilesScope::IntegrityPrefixes
     };
+    let resolved_state = state_dir(cli.state_dir.as_deref());
+    let policy_none = mitigation_policy(false, false, false, &[], &[]);
 
     let Some(command) = cli.command else {
         print_quickstart();
@@ -169,6 +226,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 false,
                 false,
                 files_scope,
+                resolved_state.clone(),
+                policy_none.clone(),
             )
             .await?;
             if code != 0 {
@@ -183,6 +242,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 false,
                 true,
                 files_scope,
+                resolved_state.clone(),
+                policy_none.clone(),
             )
             .await?;
             eprintln!("=== try: off (demo) ===");
@@ -197,6 +258,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 json,
                 quiet,
                 files_scope,
+                resolved_state.clone(),
+                policy_none.clone(),
             )
             .await?;
             std::process::exit(code);
@@ -211,6 +274,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 false,
                 quiet,
                 files_scope,
+                resolved_state.clone(),
+                policy_none.clone(),
             )
             .await?;
             if code != 0 {
@@ -221,15 +286,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             demo,
             json,
             mitigate,
+            mitigate_dry_run,
+            mitigate_confirm,
+            mitigate_allow_pid,
+            mitigate_allow_comm,
         } => {
             require_demo_on_host(demo, "off");
-            if !baseline_path().exists() {
-                eprintln!("{}", baseline_missing_message());
+            if !baseline_path(cli.state_dir.as_deref()).exists() {
+                eprintln!("{}", baseline_missing_message(cli.state_dir.as_deref()));
                 std::process::exit(2);
             }
             if !json {
                 print_off_header();
             }
+            let policy = mitigation_policy(
+                mitigate,
+                mitigate_dry_run,
+                mitigate_confirm,
+                &mitigate_allow_pid,
+                &mitigate_allow_comm,
+            );
             let code = run_brain(
                 sentinel_agent::OpCode::Off,
                 pacman_db,
@@ -238,6 +314,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 json,
                 quiet,
                 files_scope,
+                resolved_state.clone(),
+                policy,
             )
             .await?;
             std::process::exit(code);
@@ -251,6 +329,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 false,
                 quiet,
                 files_scope,
+                resolved_state.clone(),
+                policy_none.clone(),
             )
             .await?;
             if code != 0 {
@@ -338,9 +418,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             interval,
             demo,
             mitigate,
+            mitigate_dry_run,
+            mitigate_confirm,
+            mitigate_allow_pid,
+            mitigate_allow_comm,
         } => {
+            let policy = mitigation_policy(
+                mitigate,
+                mitigate_dry_run,
+                mitigate_confirm,
+                &mitigate_allow_pid,
+                &mitigate_allow_comm,
+            );
             sentinel_agent::run_agent(
-                brain_opts(pacman_db, demo, mitigate, false, quiet, files_scope),
+                brain_opts(
+                    pacman_db,
+                    demo,
+                    mitigate,
+                    false,
+                    quiet,
+                    files_scope,
+                    resolved_state,
+                    policy,
+                ),
                 interval,
             )
             .await?;

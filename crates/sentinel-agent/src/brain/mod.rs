@@ -3,7 +3,7 @@
 mod program;
 
 use crate::byteflow_bridge::SentinelAuditSink;
-use crate::mitigation::{self, MitigationAction};
+use crate::mitigation::{self, MitigationAction, MitigationPolicy};
 use byteflow::{FlowOutcome, NativeTable, Runtime, RuntimeConfig, Value};
 use program::brain_program;
 use sentinel_analyzer::{format_diff_report, format_verify_report};
@@ -12,7 +12,7 @@ use sentinel_inventory::verify_snapshot_demo_aware;
 use sentinel_inventory::{
     collect_snapshot, compare_snapshots, CollectOptions, PacmanFilesScope,
 };
-use sentinel_storage::{read_snapshot, write_snapshot};
+use sentinel_storage::{ensure_state_dir, read_snapshot, write_snapshot};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::Mutex as AsyncMutex;
@@ -34,6 +34,8 @@ pub struct BrainOptions {
     pub quiet: bool,
     /// Default [`PacmanFilesScope::IntegrityPrefixes`]; set [`PacmanFilesScope::AllPackageFiles`] for full `%FILES%`.
     pub files_scope: PacmanFilesScope,
+    pub state_dir: PathBuf,
+    pub mitigation_policy: MitigationPolicy,
 }
 
 #[derive(Debug, Default)]
@@ -44,6 +46,8 @@ pub struct BrainState {
     pub json: bool,
     pub quiet: bool,
     pub files_scope: PacmanFilesScope,
+    pub mitigation_policy: MitigationPolicy,
+    pub state_dir: PathBuf,
     pub baseline: PathBuf,
     pub last_check: PathBuf,
     pub mitigations: Mutex<Vec<MitigationAction>>,
@@ -59,8 +63,10 @@ impl BrainState {
             json: opts.json,
             quiet: opts.quiet,
             files_scope: opts.files_scope,
-            baseline: PathBuf::from(".chronos/baseline.json"),
-            last_check: PathBuf::from(".chronos/last-check.json"),
+            mitigation_policy: opts.mitigation_policy.clone(),
+            state_dir: opts.state_dir.clone(),
+            baseline: opts.state_dir.join("baseline.json"),
+            last_check: opts.state_dir.join("last-check.json"),
             ..Default::default()
         }
     }
@@ -154,6 +160,7 @@ fn sentinel_native_table(
                     pid,
                     signal: sig,
                     reason: "byteflow native mitigate_pid".into(),
+                    applied: true,
                 });
             Ok(Value::Int(1))
         })?
@@ -185,6 +192,7 @@ async fn run_host_op_async(op: OpCode, state: &BrainState) -> Result<i32, String
             let snap = collect_snapshot(&collect)
                 .await
                 .map_err(|e| e.to_string())?;
+            ensure_state_dir(&state.state_dir).map_err(|e| e.to_string())?;
             write_snapshot(&state.baseline, &snap).map_err(|e| e.to_string())?;
             let msg = format!(
                 "ON baseline {} — {} packages, {} artifacts ({} hashed, {} missing on disk, {} %FILES% rows in scope [{}], {} orphans from bin scan)",
@@ -234,10 +242,12 @@ async fn run_host_op_async(op: OpCode, state: &BrainState) -> Result<i32, String
                     .chain(diff.orphans_added.iter().map(|o| o.path.clone()))
                     .collect();
                 if !suspicious.is_empty() {
-                    let actions = mitigation::mitigate_paths(&suspicious, 15);
+                    let actions =
+                        mitigation::mitigate_paths(&suspicious, 15, &state.mitigation_policy);
                     for a in &actions {
+                        let label = if a.applied { "MITIGATED" } else { "MITIGATION" };
                         report.push_str(&format!(
-                            "\nMITIGATED pid {} signal {} ({})",
+                            "\n{label} pid {} signal {} ({})",
                             a.pid, a.signal, a.reason
                         ));
                     }
