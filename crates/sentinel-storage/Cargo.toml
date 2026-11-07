@@ -9,3 +9,7 @@ license.workspace = true
 sentinel-inventory = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+time = { workspace = true }

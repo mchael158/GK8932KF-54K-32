@@ -1,6 +1,10 @@
 mod error;
+mod paths;
 
 pub use error::StorageError;
+pub use paths::{
+    baseline_path, ensure_state_dir, last_check_path, resolve_state_dir,
+};
 
 use sentinel_inventory::InventorySnapshot;
 use std::path::Path;
@@ -19,4 +23,37 @@ pub fn write_snapshot(path: &Path, snapshot: &InventorySnapshot) -> Result<(), S
 pub fn read_snapshot(path: &Path) -> Result<InventorySnapshot, StorageError> {
     let json = std::fs::read_to_string(path)?;
     Ok(serde_json::from_str(&json)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sentinel_inventory::{CollectionMeta, InstalledPackage, InventorySnapshot};
+    use time::OffsetDateTime;
+
+    #[test]
+    fn baseline_roundtrip_preserves_integrity_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("baseline.json");
+        let snap = InventorySnapshot {
+            collected_at: OffsetDateTime::now_utc(),
+            packages: vec![InstalledPackage {
+                name: "xz".into(),
+                version: "5.6.0-1".into(),
+                installed_files: vec!["usr/bin/xz".into()],
+            }],
+            tracked_executables: vec![],
+            orphan_executables: vec![],
+            collection: CollectionMeta {
+                pacman_packages: 1,
+                artifacts_tracked: 1,
+                integrity_scope: "integrity_prefixes".into(),
+                ..CollectionMeta::default()
+            },
+        };
+        write_snapshot(&path, &snap).unwrap();
+        let again = read_snapshot(&path).unwrap();
+        assert_eq!(again.collection.integrity_scope, "integrity_prefixes");
+        assert_eq!(again.packages[0].name, "xz");
+    }
 }
