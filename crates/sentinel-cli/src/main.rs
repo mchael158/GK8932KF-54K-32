@@ -5,7 +5,10 @@ mod state;
 use clap::{Parser, Subcommand};
 use output::{print_hash_line, print_inventory_summary};
 use sentinel_analyzer::{format_diff_report, format_verify_report};
-use sentinel_inventory::{collect_snapshot, compare_snapshots, verify_snapshot, CollectOptions, PacmanFilesScope};
+use sentinel_inventory::{
+    collect_snapshot, compare_snapshots, load_merged_collect_options, verify_snapshot, CollectOptions,
+    PacmanFilesScope,
+};
 use sentinel_storage::{read_snapshot, write_snapshot};
 use guide::{print_quickstart, require_demo_on_host};
 use state::{baseline_missing_message, baseline_path, print_off_header, state_dir};
@@ -29,22 +32,26 @@ fn mitigation_policy(
 }
 
 fn brain_opts(
-    pacman_db: PathBuf,
+    collect: &CollectOptions,
     demo: bool,
     mitigate: bool,
     json: bool,
     quiet: bool,
-    files_scope: PacmanFilesScope,
     state_dir: PathBuf,
     mitigation_policy: MitigationPolicy,
 ) -> sentinel_agent::BrainOptions {
     sentinel_agent::BrainOptions {
-        pacman_db,
+        pacman_db: collect.pacman_db.clone(),
         demo,
         mitigate,
         json,
         quiet,
-        files_scope,
+        files_scope: collect.files_scope,
+        scan_roots: collect.scan_roots.clone(),
+        lib_roots: collect.lib_roots.clone(),
+        hash_executables: collect.hash_executables,
+        scan_libraries: collect.scan_libraries,
+        integrity_prefixes: collect.integrity_prefixes.clone(),
         state_dir,
         mitigation_policy,
     }
@@ -52,24 +59,22 @@ fn brain_opts(
 
 async fn run_brain(
     op: sentinel_agent::OpCode,
-    pacman_db: PathBuf,
+    collect: &CollectOptions,
     demo: bool,
     mitigate: bool,
     json: bool,
     quiet: bool,
-    files_scope: PacmanFilesScope,
     state_dir: PathBuf,
     mitigation_policy: MitigationPolicy,
 ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>> {
     let result = sentinel_agent::brain::run(
         op,
         brain_opts(
-            pacman_db,
+            collect,
             demo,
             mitigate,
             json,
             quiet,
-            files_scope,
             state_dir,
             mitigation_policy,
         ),
@@ -89,8 +94,19 @@ struct Cli {
     #[arg(long, short = 'v', global = true, help = "show Byteflow audit: lines on stderr")]
     verbose: bool,
 
-    #[arg(long, global = true, hide = true, help = "Pacman local database path")]
+    #[arg(
+        long,
+        global = true,
+        help = "Pacman local database (default: /var/lib/pacman/local on Linux)"
+    )]
     pacman_db: Option<PathBuf>,
+
+    #[arg(
+        long,
+        global = true,
+        help = "TOML config (else CHRONOS_CONFIG, XDG, /etc/chronos-sentinel/config.toml)"
+    )]
+    config: Option<PathBuf>,
 
     #[arg(
         long,
@@ -197,16 +213,22 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let cli = Cli::parse();
-    let pacman_db = cli
-        .pacman_db
-        .unwrap_or_else(|| CollectOptions::default().pacman_db);
+
+    let mut collect = match load_merged_collect_options(cli.config.as_deref()) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(2);
+        }
+    };
+    if let Some(db) = &cli.pacman_db {
+        collect.pacman_db = db.clone();
+    }
+    if cli.full_files {
+        collect.files_scope = PacmanFilesScope::AllPackageFiles;
+    }
 
     let quiet = !cli.verbose;
-    let files_scope = if cli.full_files {
-        PacmanFilesScope::AllPackageFiles
-    } else {
-        PacmanFilesScope::IntegrityPrefixes
-    };
     let resolved_state = state_dir(cli.state_dir.as_deref());
     let policy_none = mitigation_policy(false, false, false, &[], &[]);
 
@@ -220,12 +242,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             eprintln!("=== try: on (demo) ===");
             let code = run_brain(
                 sentinel_agent::OpCode::On,
-                pacman_db.clone(),
+                &collect,
                 true,
                 false,
                 false,
                 false,
-                files_scope,
                 resolved_state.clone(),
                 policy_none.clone(),
             )
@@ -236,12 +257,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             eprintln!("=== try: status ===");
             run_brain(
                 sentinel_agent::OpCode::Status,
-                pacman_db.clone(),
+                &collect,
                 false,
                 false,
                 false,
                 true,
-                files_scope,
                 resolved_state.clone(),
                 policy_none.clone(),
             )
@@ -252,12 +272,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             }
             let code = run_brain(
                 sentinel_agent::OpCode::Off,
-                pacman_db,
+                &collect,
                 true,
                 false,
                 json,
                 quiet,
-                files_scope,
                 resolved_state.clone(),
                 policy_none.clone(),
             )
@@ -268,12 +287,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             require_demo_on_host(demo, "on");
             let code = run_brain(
                 sentinel_agent::OpCode::On,
-                pacman_db,
+                &collect,
                 demo,
                 false,
                 false,
                 quiet,
-                files_scope,
                 resolved_state.clone(),
                 policy_none.clone(),
             )
@@ -308,12 +326,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             );
             let code = run_brain(
                 sentinel_agent::OpCode::Off,
-                pacman_db,
+                &collect,
                 demo,
                 mitigate,
                 json,
                 quiet,
-                files_scope,
                 resolved_state.clone(),
                 policy,
             )
@@ -323,12 +340,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Commands::Status => {
             let code = run_brain(
                 sentinel_agent::OpCode::Status,
-                pacman_db,
+                &collect,
                 false,
                 false,
                 false,
                 quiet,
-                files_scope,
                 resolved_state.clone(),
                 policy_none.clone(),
             )
@@ -345,14 +361,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             demo,
         } => {
             require_demo_on_host(demo, "inventory");
-            let opts = CollectOptions {
-                pacman_db,
-                hash_executables: hash,
-                scan_libraries: libs,
-                demo,
-                files_scope,
-                ..CollectOptions::default()
-            };
+            let mut opts = collect.clone();
+            opts.hash_executables = hash || opts.hash_executables;
+            opts.scan_libraries = libs || opts.scan_libraries;
+            opts.demo = demo;
             let snapshot = collect_snapshot(&opts).await?;
             if let Some(path) = &output {
                 write_snapshot(path, &snapshot)?;
@@ -431,16 +443,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 &mitigate_allow_comm,
             );
             sentinel_agent::run_agent(
-                brain_opts(
-                    pacman_db,
-                    demo,
-                    mitigate,
-                    false,
-                    quiet,
-                    files_scope,
-                    resolved_state,
-                    policy,
-                ),
+                brain_opts(&collect, demo, mitigate, false, quiet, resolved_state, policy),
                 interval,
             )
             .await?;

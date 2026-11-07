@@ -35,6 +35,25 @@ cargo build -p sentinel-cli
 
 One command per line (do not paste `on`, `status`, `off` on the same line unless separated with `;`).
 
+### Configuration (inventory TOML)
+
+Inventory paths and scans are configured separately from mitigation policy:
+
+| Source | Precedence |
+|--------|------------|
+| Built-in defaults | lowest |
+| Config file (`[inventory]`) | middle |
+| CLI (`--config`, `--pacman-db`, `--full-files`) | highest |
+
+Search order for config: `--config` → `CHRONOS_CONFIG` → `$XDG_CONFIG_HOME/chronos-sentinel/config.toml` → `~/.config/chronos-sentinel/config.toml` → `/etc/chronos-sentinel/config.toml`.
+
+Example: [`packaging/chronos-sentinel.example.toml`](packaging/chronos-sentinel.example.toml) — customize `integrity_prefixes`, `scan_roots`, `lib_roots`, `files_scope`.
+
+```bash
+sudo install -Dm644 packaging/chronos-sentinel.example.toml /etc/chronos-sentinel/config.toml
+chronos-sentinel on
+```
+
 ### Data collection (Linux)
 
 1. **Pacman** — `pacman -Q` plus `%NAME%`, `%VERSION%`, `%FILES%` from `/var/lib/pacman/local/*/desc` (one indexed pass over the DB).
@@ -88,7 +107,7 @@ chronos-sentinel verify --snapshot snap.json
 chronos-sentinel hash /usr/bin/sshd
 ```
 
-Global hidden flag: `--pacman-db <path>` (default: `/var/lib/pacman/local`).
+Global flags: `--config`, `--pacman-db`, `--state-dir`, `--full-files` (see `chronos-sentinel help`).
 
 To use a local Byteflow tree, edit `crates/sentinel-agent/Cargo.toml`:
 

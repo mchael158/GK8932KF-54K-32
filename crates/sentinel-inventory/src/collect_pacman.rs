@@ -11,11 +11,12 @@ pub async fn artifacts_from_package_files(
     packages: &[InstalledPackage],
     hash_files: bool,
     scope: PacmanFilesScope,
+    integrity_prefixes: &[String],
 ) -> Result<Vec<TrackedExecutable>, InventoryError> {
     let mut out = Vec::new();
     for pkg in packages {
         for rel in &pkg.installed_files {
-            if !package_file_in_scope(rel, scope) {
+            if !package_file_in_scope(rel, scope, integrity_prefixes) {
                 continue;
             }
             let path = pacman_rel_to_abs(rel);
@@ -38,11 +39,15 @@ pub async fn artifacts_from_package_files(
     Ok(out)
 }
 
-pub fn count_scoped_file_entries(packages: &[InstalledPackage], scope: PacmanFilesScope) -> usize {
+pub fn count_scoped_file_entries(
+    packages: &[InstalledPackage],
+    scope: PacmanFilesScope,
+    integrity_prefixes: &[String],
+) -> usize {
     packages
         .iter()
         .flat_map(|p| p.installed_files.iter())
-        .filter(|rel| package_file_in_scope(rel, scope))
+        .filter(|rel| package_file_in_scope(rel, scope, integrity_prefixes))
         .count()
 }
 
@@ -52,17 +57,21 @@ mod tests {
 
     #[test]
     fn prefix_scope_excludes_doc() {
+        let none: &[String] = &[];
         assert!(package_file_in_scope(
             "usr/lib/liblzma.so.5",
-            PacmanFilesScope::IntegrityPrefixes
+            PacmanFilesScope::IntegrityPrefixes,
+            none,
         ));
         assert!(!package_file_in_scope(
             "usr/share/doc/xz/README",
-            PacmanFilesScope::IntegrityPrefixes
+            PacmanFilesScope::IntegrityPrefixes,
+            none,
         ));
         assert!(package_file_in_scope(
             "usr/share/doc/xz/README",
-            PacmanFilesScope::AllPackageFiles
+            PacmanFilesScope::AllPackageFiles,
+            none,
         ));
     }
 

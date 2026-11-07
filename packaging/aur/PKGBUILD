@@ -31,6 +31,8 @@ package() {
   install -Dm755 target/release/chronos-sentinel "$pkgdir/usr/bin/chronos-sentinel"
   install -Dm644 packaging/systemd/chronos-sentinel.service \
     "$pkgdir/usr/lib/systemd/system/chronos-sentinel.service"
+  install -Dm644 packaging/chronos-sentinel.example.toml \
+    "$pkgdir/etc/chronos-sentinel/config.toml"
   install -Dm644 README.md "$pkgdir/usr/share/doc/chronos-sentinel/README.md"
   install -Dm644 docs/THREAT_MODEL.md "$pkgdir/usr/share/doc/chronos-sentinel/THREAT_MODEL.md"
 }

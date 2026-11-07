@@ -34,6 +34,11 @@ pub struct BrainOptions {
     pub quiet: bool,
     /// Default [`PacmanFilesScope::IntegrityPrefixes`]; set [`PacmanFilesScope::AllPackageFiles`] for full `%FILES%`.
     pub files_scope: PacmanFilesScope,
+    pub scan_roots: Vec<PathBuf>,
+    pub lib_roots: Vec<PathBuf>,
+    pub hash_executables: bool,
+    pub scan_libraries: bool,
+    pub integrity_prefixes: Vec<String>,
     pub state_dir: PathBuf,
     pub mitigation_policy: MitigationPolicy,
 }
@@ -46,6 +51,11 @@ pub struct BrainState {
     pub json: bool,
     pub quiet: bool,
     pub files_scope: PacmanFilesScope,
+    pub scan_roots: Vec<PathBuf>,
+    pub lib_roots: Vec<PathBuf>,
+    pub hash_executables: bool,
+    pub scan_libraries: bool,
+    pub integrity_prefixes: Vec<String>,
     pub mitigation_policy: MitigationPolicy,
     pub state_dir: PathBuf,
     pub baseline: PathBuf,
@@ -63,6 +73,11 @@ impl BrainState {
             json: opts.json,
             quiet: opts.quiet,
             files_scope: opts.files_scope,
+            scan_roots: opts.scan_roots.clone(),
+            lib_roots: opts.lib_roots.clone(),
+            hash_executables: opts.hash_executables,
+            scan_libraries: opts.scan_libraries,
+            integrity_prefixes: opts.integrity_prefixes.clone(),
             mitigation_policy: opts.mitigation_policy.clone(),
             state_dir: opts.state_dir.clone(),
             baseline: opts.state_dir.join("baseline.json"),
@@ -180,10 +195,13 @@ fn run_host_op(op: OpCode, state: &BrainState) -> Result<i32, byteflow::Fault> {
 async fn run_host_op_async(op: OpCode, state: &BrainState) -> Result<i32, String> {
     let collect = CollectOptions {
         pacman_db: state.pacman_db.clone(),
-        hash_executables: true,
-        scan_libraries: true,
+        scan_roots: state.scan_roots.clone(),
+        lib_roots: state.lib_roots.clone(),
+        hash_executables: state.hash_executables,
+        scan_libraries: state.scan_libraries,
         demo: state.demo,
         files_scope: state.files_scope,
+        integrity_prefixes: state.integrity_prefixes.clone(),
         ..CollectOptions::default()
     };
 

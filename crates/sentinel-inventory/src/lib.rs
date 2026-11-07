@@ -1,4 +1,5 @@
 mod collect_pacman;
+mod config;
 mod diff;
 mod error;
 #[cfg(target_os = "linux")]
@@ -9,6 +10,10 @@ mod scan;
 mod snapshot;
 mod verify;
 
+pub use config::{
+    discover_config_path, load_config_file, load_merged_collect_options, ChronosConfigFile,
+    ConfigError, InventoryToml,
+};
 pub use diff::{compare_snapshots, ExecutableHashChange, InventoryDiff, PackageChange};
 pub use error::InventoryError;
 pub use scope::{PacmanFilesScope, INTEGRITY_PREFIXES};

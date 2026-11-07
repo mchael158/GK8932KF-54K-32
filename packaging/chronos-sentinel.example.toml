@@ -1,0 +1,26 @@
+# Example inventory config (copy to one of):
+#   $XDG_CONFIG_HOME/chronos-sentinel/config.toml
+#   ~/.config/chronos-sentinel/config.toml
+#   /etc/chronos-sentinel/config.toml
+# Or set CHRONOS_CONFIG=/path/to/this/file
+#
+# Policy (mitigation, state dir) stays on CLI / environment — see docs/THREAT_MODEL.md.
+
+[inventory]
+pacman_db = "/var/lib/pacman/local"
+hash_executables = true
+scan_libraries = true
+files_scope = "integrity_prefixes" # or "all_package_files"
+
+# Replace built-in prefix list when non-empty:
+integrity_prefixes = [
+  "usr/bin/",
+  "usr/sbin/",
+  "usr/lib/",
+  "lib/",
+  "etc/ssh/",
+  "etc/sudoers.d/",
+]
+
+scan_roots = ["/usr/bin", "/usr/local/bin", "/usr/sbin"]
+lib_roots = ["/usr/lib", "/lib"]

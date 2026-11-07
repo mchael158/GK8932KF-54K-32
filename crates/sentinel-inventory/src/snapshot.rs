@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 #[cfg(target_os = "linux")]
 use crate::scan;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CollectOptions {
     pub pacman_db: PathBuf,
     pub scan_roots: Vec<PathBuf>,
@@ -16,6 +16,8 @@ pub struct CollectOptions {
     pub scan_libraries: bool,
     /// Default [`PacmanFilesScope::IntegrityPrefixes`] — not full `%FILES%` (size).
     pub files_scope: PacmanFilesScope,
+    /// Empty = built-in [`crate::scope::INTEGRITY_PREFIXES`]; set via config TOML or API.
+    pub integrity_prefixes: Vec<String>,
     pub demo: bool,
 }
 
@@ -28,6 +30,7 @@ impl Default for CollectOptions {
             hash_executables: true,
             scan_libraries: true,
             files_scope: PacmanFilesScope::default(),
+            integrity_prefixes: Vec::new(),
             demo: false,
         }
     }
@@ -132,8 +135,10 @@ pub async fn collect(opts: &CollectOptions) -> Result<InventorySnapshot, Invento
         let packages = crate::pacman::list_local_packages(&opts.pacman_db).await?;
         let hash_files = opts.hash_executables;
         let scope = opts.files_scope;
+        let prefixes = &opts.integrity_prefixes;
 
-        let mut tracked = artifacts_from_package_files(&packages, hash_files, scope).await?;
+        let mut tracked =
+            artifacts_from_package_files(&packages, hash_files, scope, prefixes).await?;
         let mut seen: HashSet<String> = tracked.iter().map(|t| t.path.clone()).collect();
         let mut orphan_executables = Vec::new();
 
@@ -178,7 +183,7 @@ pub async fn collect(opts: &CollectOptions) -> Result<InventorySnapshot, Invento
         let collection = CollectionMeta {
             pacman_packages: packages.len(),
             pacman_file_records: packages.iter().map(|p| p.installed_files.len()).sum(),
-            integrity_paths_in_db: count_scoped_file_entries(&packages, scope),
+            integrity_paths_in_db: count_scoped_file_entries(&packages, scope, prefixes),
             integrity_scope: scope.as_str().into(),
             artifacts_tracked: tracked.len() + orphan_executables.len(),
             artifacts_hashed: hashed,

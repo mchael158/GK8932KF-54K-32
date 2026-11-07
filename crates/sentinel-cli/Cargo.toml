@@ -19,3 +19,4 @@ sentinel-inventory = { workspace = true }
 sentinel-storage = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
+toml = { workspace = true }

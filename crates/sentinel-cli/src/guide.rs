@@ -12,7 +12,8 @@ Production (Arch Linux, real pacman):
   chronos-sentinel on
   chronos-sentinel off
 
-Flags:  -d  demo   |  -v  Byteflow audit   |  --state-dir <path>   |  off --json
+Config: --config <toml>  |  CHRONOS_CONFIG  |  XDG  |  /etc/chronos-sentinel/config.toml
+Flags:  -d  demo   |  -v  audit   |  --pacman-db   |  --state-dir   |  --full-files   |  off --json
 Mitigate:  --mitigate (audit)  --mitigate-dry-run  --mitigate-confirm (SIGTERM, destructive)
           --mitigate-allow-pid / --mitigate-allow-comm
 
@@ -27,8 +28,12 @@ pub fn require_demo_on_host(demo: bool, verb: &str) {
     #[cfg(not(target_os = "linux"))]
     if !demo {
         eprintln!(
-            "{verb}: this OS has no pacman DB — add -d (or --demo), or run: chronos-sentinel try"
+            "{verb}: sem pacman no host — use -d/--demo ou: chronos-sentinel try"
         );
         std::process::exit(2);
+    }
+    #[cfg(target_os = "linux")]
+    if !demo {
+        let _ = verb;
     }
 }
