@@ -91,6 +91,12 @@ The unit sets `CHRONOS_STATE_DIR=/var/lib/chronos-sentinel` and runs `agent` wit
 - **Heartbeat:** removed from one-shot CLI (was interleaving output). **`agent`** is the long-running Byteflow loop.
 - **`agent`:** foreground loop — repeated `off` every **300s** by default (systemd-friendly).
 
+### Completions, man, structured logs
+
+- Completions: `chronos-sentinel completions {bash,fish,zsh}` → stdout (see [`docs/OPERATIONS.en.md`](docs/OPERATIONS.en.md) / [`docs/OPERATIONS.pt-BR.md`](docs/OPERATIONS.pt-BR.md)).
+- Man: `packaging/man/chronos-sentinel.1` · regenerate with `chronos-sentinel gen-man --output …`.
+- JSON logs: `--log-json` or `CHRONOS_LOG_JSON=1` (stderr, one object per line; does not replace human reports).
+
 ## Build & test
 
 ```bash

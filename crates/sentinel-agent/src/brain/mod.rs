@@ -41,6 +41,8 @@ pub struct BrainOptions {
     pub integrity_prefixes: Vec<String>,
     pub state_dir: PathBuf,
     pub mitigation_policy: MitigationPolicy,
+    /// Emit JSON scan lines from the agent loop (set by CLI).
+    pub log_json: bool,
 }
 
 #[derive(Debug, Default)]
@@ -58,6 +60,7 @@ pub struct BrainState {
     pub integrity_prefixes: Vec<String>,
     pub mitigation_policy: MitigationPolicy,
     pub state_dir: PathBuf,
+    pub log_json: bool,
     pub baseline: PathBuf,
     pub last_check: PathBuf,
     pub mitigations: Mutex<Vec<MitigationAction>>,
@@ -80,6 +83,7 @@ impl BrainState {
             integrity_prefixes: opts.integrity_prefixes.clone(),
             mitigation_policy: opts.mitigation_policy.clone(),
             state_dir: opts.state_dir.clone(),
+            log_json: opts.log_json,
             baseline: opts.state_dir.join("baseline.json"),
             last_check: opts.state_dir.join("last-check.json"),
             ..Default::default()
@@ -309,6 +313,20 @@ async fn run_host_op_async(op: OpCode, state: &BrainState) -> Result<i32, String
     }
 }
 
+fn agent_scan_log(log_json: bool, exit_code: i32, interval_secs: u64) {
+    if !log_json {
+        return;
+    }
+    eprintln!(
+        "{}",
+        serde_json::json!({
+            "ts": time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap_or_default(),
+            "event": "agent_scan",
+            "chronos": { "exit_code": exit_code, "interval_secs": interval_secs },
+        })
+    );
+}
+
 pub async fn run_daemon(
     opts: BrainOptions,
     interval_secs: u64,
@@ -316,7 +334,8 @@ pub async fn run_daemon(
     eprintln!("brain daemon: OFF check every {interval_secs}s (Ctrl+C to stop)");
     loop {
         let result = run(OpCode::Off, opts.clone()).await?;
-        if result.exit_code == 1 {
+        agent_scan_log(opts.log_json, result.exit_code, interval_secs);
+        if result.exit_code == 1 && !opts.quiet {
             eprintln!("brain: anomaly exit {}", result.exit_code);
         }
         tokio::time::sleep(std::time::Duration::from_secs(interval_secs)).await;

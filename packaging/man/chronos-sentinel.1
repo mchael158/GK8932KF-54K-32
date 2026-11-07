@@ -1,0 +1,71 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH chronos-sentinel 1  "chronos-sentinel 0.1.0" 
+.SH NAME
+chronos\-sentinel \- pacman integrity baseline (Arch)
+.SH SYNOPSIS
+\fBchronos\-sentinel\fR [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-\-log\-json\fR] [\fB\-\-pacman\-db\fR] [\fB\-\-config\fR] [\fB\-\-full\-files\fR] [\fB\-\-state\-dir\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] [\fIsubcommands\fR]
+.SH DESCRIPTION
+pacman integrity baseline (Arch)
+.SH OPTIONS
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+show Byteflow audit: lines on stderr
+.TP
+\fB\-\-log\-json\fR
+JSON log lines on stderr (or CHRONOS_LOG_JSON=1)
+.TP
+\fB\-\-pacman\-db\fR \fI<PACMAN_DB>\fR
+Pacman local database (default: /var/lib/pacman/local on Linux)
+.TP
+\fB\-\-config\fR \fI<CONFIG>\fR
+TOML config (else CHRONOS_CONFIG, XDG, /etc/chronos\-sentinel/config.toml)
+.TP
+\fB\-\-full\-files\fR
+Track every %FILES% path (default: usr/bin, usr/lib, etc/ssh, … prefixes only)
+.TP
+\fB\-\-state\-dir\fR \fI<STATE_DIR>\fR
+Override state directory (else CHRONOS_STATE_DIR, XDG, or .chronos/)
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.SH SUBCOMMANDS
+.TP
+chronos\-sentinel\-try(1)
+Synthetic end\-to\-end run: on → status → off (uses \-d)
+.TP
+chronos\-sentinel\-on(1)
+Save baseline (state dir/baseline.json)
+.TP
+chronos\-sentinel\-off(1)
+Diff and verify against baseline
+.TP
+chronos\-sentinel\-status(1)
+Show baseline path / ON state
+.TP
+chronos\-sentinel\-inventory(1)
+Export inventory JSON (add \-d on Windows)
+.TP
+chronos\-sentinel\-diff(1)
+.TP
+chronos\-sentinel\-verify(1)
+.TP
+chronos\-sentinel\-hash(1)
+.TP
+chronos\-sentinel\-agent(1)
+.TP
+chronos\-sentinel\-completions(1)
+Print shell completion script to stdout
+.TP
+chronos\-sentinel\-gen\-man(1)
+Write roff man page to stdout or \-\-output
+.TP
+chronos\-sentinel\-help(1)
+Print this message or the help of the given subcommand(s)
+.SH EXTRA
+Windows/dev:  chronos\-sentinel try     |     \-d = \-\-demo = \-\-dem
+.SH VERSION
+v0.1.0

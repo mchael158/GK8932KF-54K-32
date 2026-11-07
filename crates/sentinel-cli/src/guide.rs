@@ -20,7 +20,8 @@ Mitigate:  --mitigate (audit)  --mitigate-dry-run  --mitigate-confirm (SIGTERM, 
 Run one command per line (PowerShell: use `;` between commands, not newlines in paste).
   .\target\debug\chronos-sentinel.exe try
 
-Docs: docs/THREAT_MODEL.md   |   Help:  chronos-sentinel help on"#
+Completions: chronos-sentinel completions bash
+Logs: --log-json  |  Docs: docs/OPERATIONS.pt-BR.md  |  Help: chronos-sentinel help on"#
     );
 }
 

@@ -1,13 +1,17 @@
+mod cli;
+mod completions;
 mod guide;
+mod log_json;
 mod output;
 mod state;
 
-use clap::{Parser, Subcommand};
+use cli::{Cli, Commands};
+use clap::Parser;
 use output::{print_hash_line, print_inventory_summary};
 use sentinel_analyzer::{format_diff_report, format_verify_report};
 use sentinel_inventory::{
-    collect_snapshot, compare_snapshots, load_merged_collect_options, verify_snapshot, CollectOptions,
-    PacmanFilesScope,
+    collect_snapshot, compare_snapshots, discover_config_path, load_merged_collect_options,
+    verify_snapshot, CollectOptions, PacmanFilesScope,
 };
 use sentinel_storage::{read_snapshot, write_snapshot};
 use guide::{print_quickstart, require_demo_on_host};
@@ -39,6 +43,7 @@ fn brain_opts(
     quiet: bool,
     state_dir: PathBuf,
     mitigation_policy: MitigationPolicy,
+    log_json: bool,
 ) -> sentinel_agent::BrainOptions {
     sentinel_agent::BrainOptions {
         pacman_db: collect.pacman_db.clone(),
@@ -54,6 +59,7 @@ fn brain_opts(
         integrity_prefixes: collect.integrity_prefixes.clone(),
         state_dir,
         mitigation_policy,
+        log_json,
     }
 }
 
@@ -66,6 +72,7 @@ async fn run_brain(
     quiet: bool,
     state_dir: PathBuf,
     mitigation_policy: MitigationPolicy,
+    log_json: bool,
 ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>> {
     let result = sentinel_agent::brain::run(
         op,
@@ -77,142 +84,38 @@ async fn run_brain(
             quiet,
             state_dir,
             mitigation_policy,
+            log_json,
         ),
     )
     .await?;
     Ok(result.exit_code)
 }
 
-#[derive(Parser)]
-#[command(
-    name = "chronos-sentinel",
-    version,
-    about = "pacman integrity baseline (Arch)",
-    after_help = "Windows/dev:  chronos-sentinel try     |     -d = --demo = --dem"
-)]
-struct Cli {
-    #[arg(long, short = 'v', global = true, help = "show Byteflow audit: lines on stderr")]
-    verbose: bool,
-
-    #[arg(
-        long,
-        global = true,
-        help = "Pacman local database (default: /var/lib/pacman/local on Linux)"
-    )]
-    pacman_db: Option<PathBuf>,
-
-    #[arg(
-        long,
-        global = true,
-        help = "TOML config (else CHRONOS_CONFIG, XDG, /etc/chronos-sentinel/config.toml)"
-    )]
-    config: Option<PathBuf>,
-
-    #[arg(
-        long,
-        global = true,
-        help = "Track every %FILES% path (default: usr/bin, usr/lib, etc/ssh, … prefixes only)"
-    )]
-    full_files: bool,
-
-    #[arg(
-        long,
-        global = true,
-        help = "Override state directory (else CHRONOS_STATE_DIR, XDG, or .chronos/)"
-    )]
-    state_dir: Option<PathBuf>,
-
-    #[command(subcommand)]
-    command: Option<Commands>,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    /// Synthetic end-to-end run: on → status → off (uses -d)
-    Try {
-        #[arg(long, help = "JSON on the final off step")]
-        json: bool,
-    },
-    /// Save baseline (.chronos/baseline.json)
-    On {
-        #[arg(long, short = 'd', visible_alias = "dem", help = "demo snapshot (required off Linux)")]
-        demo: bool,
-    },
-    /// Diff and verify against baseline
-    Off {
-        #[arg(long, short = 'd', visible_alias = "dem", help = "demo snapshot (required off Linux)")]
-        demo: bool,
-        #[arg(long, help = "JSON diff on stdout")]
-        json: bool,
-        #[arg(
-            long,
-            help = "Evaluate process mitigation for suspicious paths (Linux; dry-run unless --mitigate-confirm)"
-        )]
-        mitigate: bool,
-        #[arg(long, help = "Only report PIDs that would be signaled (never kill)")]
-        mitigate_dry_run: bool,
-        #[arg(long, help = "Actually send SIGTERM after --mitigate (destructive)")]
-        mitigate_confirm: bool,
-        #[arg(long, value_name = "PID", action = clap::ArgAction::Append)]
-        mitigate_allow_pid: Vec<u32>,
-        #[arg(long, value_name = "COMM", action = clap::ArgAction::Append)]
-        mitigate_allow_comm: Vec<String>,
-    },
-    /// Show baseline path / ON state
-    Status,
-    /// Export inventory JSON (add -d on Windows)
-    Inventory {
-        #[arg(short, long, help = "Write JSON snapshot to path")]
-        output: Option<PathBuf>,
-        #[arg(long, help = "Print JSON to stdout")]
-        json: bool,
-        #[arg(long, help = "BLAKE3 hash for each tracked artifact")]
-        hash: bool,
-        #[arg(long, help = "Scan /usr/lib for shared objects")]
-        libs: bool,
-        #[arg(long, short = 'd', visible_alias = "dem", help = "demo snapshot")]
-        demo: bool,
-    },
-    Diff {
-        #[arg(long)]
-        before: PathBuf,
-        #[arg(long)]
-        after: PathBuf,
-        #[arg(long)]
-        json: bool,
-    },
-    Verify {
-        #[arg(long)]
-        snapshot: PathBuf,
-        #[arg(long)]
-        json: bool,
-    },
-    Hash {
-        paths: Vec<PathBuf>,
-        #[arg(long)]
-        json: bool,
-    },
-    Agent {
-        #[arg(long, default_value_t = 300, help = "seconds between off scans")]
-        interval: u64,
-        #[arg(long, short = 'd', visible_alias = "dem", help = "demo snapshot")]
-        demo: bool,
-        #[arg(long, help = "Evaluate mitigation each scan (dry-run unless --mitigate-confirm)")]
-        mitigate: bool,
-        #[arg(long, help = "Only report PIDs that would be signaled")]
-        mitigate_dry_run: bool,
-        #[arg(long, help = "Actually send SIGTERM (destructive)")]
-        mitigate_confirm: bool,
-        #[arg(long, value_name = "PID", action = clap::ArgAction::Append)]
-        mitigate_allow_pid: Vec<u32>,
-        #[arg(long, value_name = "COMM", action = clap::ArgAction::Append)]
-        mitigate_allow_comm: Vec<String>,
-    },
+fn finish(log_json: bool, command: &str, code: i32) -> ! {
+    if log_json {
+        log_json::command_done(command, code);
+    }
+    std::process::exit(code);
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let cli = Cli::parse();
+
+    if let Some(Commands::Completions { shell }) = &cli.command {
+        completions::print_completions(*shell)?;
+        return Ok(());
+    }
+    if let Some(Commands::GenMan { output }) = &cli.command {
+        if let Some(path) = output {
+            completions::write_man_page(path)?;
+        } else {
+            completions::print_man_page()?;
+        }
+        return Ok(());
+    }
+
+    let log_json = log_json::enabled(cli.log_json);
 
     let mut collect = match load_merged_collect_options(cli.config.as_deref()) {
         Ok(c) => c,
@@ -232,10 +135,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let resolved_state = state_dir(cli.state_dir.as_deref());
     let policy_none = mitigation_policy(false, false, false, &[], &[]);
 
+    if log_json {
+        let discovered = discover_config_path();
+        let cfg_path = cli.config.as_deref().or(discovered.as_deref());
+        log_json::config_loaded(cfg_path);
+    }
+
     let Some(command) = cli.command else {
         print_quickstart();
         std::process::exit(0);
     };
+
+    if log_json {
+        log_json::command_start(command.name());
+    }
 
     match command {
         Commands::Try { json } => {
@@ -249,10 +162,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 false,
                 resolved_state.clone(),
                 policy_none.clone(),
+                log_json,
             )
             .await?;
             if code != 0 {
-                std::process::exit(code);
+                finish(log_json, "try", code);
             }
             eprintln!("=== try: status ===");
             run_brain(
@@ -264,6 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 true,
                 resolved_state.clone(),
                 policy_none.clone(),
+                log_json,
             )
             .await?;
             eprintln!("=== try: off (demo) ===");
@@ -279,9 +194,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 quiet,
                 resolved_state.clone(),
                 policy_none.clone(),
+                log_json,
             )
             .await?;
-            std::process::exit(code);
+            finish(log_json, "try", code);
         }
         Commands::On { demo } => {
             require_demo_on_host(demo, "on");
@@ -294,10 +210,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 quiet,
                 resolved_state.clone(),
                 policy_none.clone(),
+                log_json,
             )
             .await?;
             if code != 0 {
-                std::process::exit(code);
+                finish(log_json, "on", code);
+            }
+            if log_json {
+                log_json::command_done("on", 0);
             }
         }
         Commands::Off {
@@ -333,9 +253,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 quiet,
                 resolved_state.clone(),
                 policy,
+                log_json,
             )
             .await?;
-            std::process::exit(code);
+            finish(log_json, "off", code);
         }
         Commands::Status => {
             let code = run_brain(
@@ -347,11 +268,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 quiet,
                 resolved_state.clone(),
                 policy_none.clone(),
+                log_json,
             )
             .await?;
-            if code != 0 {
-                std::process::exit(code);
-            }
+            finish(log_json, "status", code);
         }
         Commands::Inventory {
             output,
@@ -373,6 +293,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 println!("{}", serde_json::to_string_pretty(&snapshot)?);
             } else {
                 print_inventory_summary(&snapshot, output.as_deref());
+            }
+            if log_json {
+                log_json::command_done("inventory", 0);
             }
         }
         Commands::Diff {
@@ -443,11 +366,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 &mitigate_allow_comm,
             );
             sentinel_agent::run_agent(
-                brain_opts(&collect, demo, mitigate, false, quiet, resolved_state, policy),
+                brain_opts(
+                    &collect,
+                    demo,
+                    mitigate,
+                    false,
+                    quiet,
+                    resolved_state,
+                    policy,
+                    log_json,
+                ),
                 interval,
             )
             .await?;
         }
+        Commands::Completions { .. } | Commands::GenMan { .. } => unreachable!(),
     }
     Ok(())
 }

@@ -12,6 +12,9 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { workspace = true }
+clap_complete = { workspace = true }
+clap_mangen = { workspace = true }
+time = { workspace = true }
 sentinel-agent = { workspace = true }
 sentinel-analyzer = { workspace = true }
 sentinel-integrity = { workspace = true }
