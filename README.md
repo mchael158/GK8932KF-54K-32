@@ -97,6 +97,14 @@ The unit sets `CHRONOS_STATE_DIR=/var/lib/chronos-sentinel` and runs `agent` wit
 - Man: `packaging/man/chronos-sentinel.1` · regenerate with `chronos-sentinel gen-man --output …`.
 - JSON logs: `--log-json` or `CHRONOS_LOG_JSON=1` (stderr, one object per line; does not replace human reports).
 
+### Baseline signing (Ed25519)
+
+1. `chronos-sentinel keygen` → `signing.key` + `signing.pub.json`
+2. `chronos-sentinel on` writes `baseline.json` and, when a key is found, `baseline.json.sig` (BLAKE3 + Ed25519)
+3. `chronos-sentinel off` verifies the sidecar when present (override with `--no-verify-signature`)
+
+Details: [`docs/SIGNING.pt-BR.md`](docs/SIGNING.pt-BR.md). Optional: `CHRONOS_TRUSTED_PUBKEY_HEX`, `--require-sign`, `--require-signed-baseline`, `sign-verify`.
+
 ## Build & test
 
 ```bash

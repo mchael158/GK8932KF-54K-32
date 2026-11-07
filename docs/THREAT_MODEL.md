@@ -25,7 +25,7 @@ Chronos Sentinel is an **integrity baseline** tool for **Arch Linux** systems ma
 - Malware that only touches paths outside the scope (e.g. `usr/share/doc`, home directories) unless `--full-files` or future config expands scope.
 - Runtime-only attacks (`LD_PRELOAD`, in-memory-only payloads, kernel rootkits).
 - Changes hidden by bind mounts or namespaces unless the same view is used at baseline and check time.
-- Adversarial modification of the baseline JSON itself (signing is planned for enterprise phase).
+- Adversarial modification of the baseline JSON **without** breaking Ed25519: use `baseline.json.sig` (see [`SIGNING.pt-BR.md`](SIGNING.pt-BR.md)). Protect `signing.key` like any TLS private key.
 
 ## Mitigation (`--mitigate`)
 

@@ -13,12 +13,40 @@ use sentinel_inventory::{
     collect_snapshot, compare_snapshots, discover_config_path, load_merged_collect_options,
     verify_snapshot, CollectOptions, PacmanFilesScope,
 };
-use sentinel_storage::{read_snapshot, write_snapshot};
+use sentinel_storage::{read_snapshot, verify_snapshot_file, write_keypair, write_snapshot};
 use guide::{print_quickstart, require_demo_on_host};
 use state::{baseline_missing_message, baseline_path, print_off_header, state_dir};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use sentinel_agent::MitigationPolicy;
+
+struct SigningCli {
+    sign_baseline: bool,
+    require_sign: bool,
+    verify_baseline_sig: bool,
+    require_signed_baseline: bool,
+    signing_key_path: Option<PathBuf>,
+}
+
+fn signing_from_cli(cli: &Cli) -> SigningCli {
+    SigningCli {
+        sign_baseline: cli.sign && !cli.no_sign,
+        require_sign: cli.require_sign,
+        verify_baseline_sig: cli.verify_signature && !cli.no_verify_signature,
+        require_signed_baseline: cli.require_signed_baseline,
+        signing_key_path: cli.signing_key.clone(),
+    }
+}
+
+fn default_keygen_dir() -> PathBuf {
+    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        let p = xdg.trim();
+        if !p.is_empty() {
+            return PathBuf::from(p).join("chronos-sentinel");
+        }
+    }
+    PathBuf::from(".chronos/keys")
+}
 
 fn mitigation_policy(
     mitigate: bool,
@@ -44,6 +72,11 @@ fn brain_opts(
     state_dir: PathBuf,
     mitigation_policy: MitigationPolicy,
     log_json: bool,
+    sign_baseline: bool,
+    require_sign: bool,
+    verify_baseline_sig: bool,
+    require_signed_baseline: bool,
+    signing_key_path: Option<PathBuf>,
 ) -> sentinel_agent::BrainOptions {
     sentinel_agent::BrainOptions {
         pacman_db: collect.pacman_db.clone(),
@@ -60,6 +93,11 @@ fn brain_opts(
         state_dir,
         mitigation_policy,
         log_json,
+        sign_baseline,
+        require_sign,
+        verify_baseline_sig,
+        require_signed_baseline,
+        signing_key_path,
     }
 }
 
@@ -73,6 +111,7 @@ async fn run_brain(
     state_dir: PathBuf,
     mitigation_policy: MitigationPolicy,
     log_json: bool,
+    signing: &SigningCli,
 ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>> {
     let result = sentinel_agent::brain::run(
         op,
@@ -85,6 +124,11 @@ async fn run_brain(
             state_dir,
             mitigation_policy,
             log_json,
+            signing.sign_baseline,
+            signing.require_sign,
+            signing.verify_baseline_sig,
+            signing.require_signed_baseline,
+            signing.signing_key_path.clone(),
         ),
     )
     .await?;
@@ -114,8 +158,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
         return Ok(());
     }
+    if let Some(Commands::Keygen { output_dir }) = &cli.command {
+        let dir = output_dir.clone().unwrap_or_else(default_keygen_dir);
+        let (secret, public) = write_keypair(&dir)?;
+        eprintln!("Wrote signing key: {}", secret.display());
+        eprintln!("Wrote public key:  {}", public.display());
+        return Ok(());
+    }
+    if let Some(Commands::SignVerify { snapshot }) = &cli.command {
+        let path = snapshot
+            .clone()
+            .unwrap_or_else(|| baseline_path(cli.state_dir.as_deref()));
+        match verify_snapshot_file(&path).map_err(|e| std::io::Error::other(e))? {
+            Some(_) => {
+                eprintln!("Signature OK: {}", path.display());
+                std::process::exit(0);
+            }
+            None => {
+                eprintln!("No signature sidecar for {}", path.display());
+                std::process::exit(2);
+            }
+        }
+    }
 
     let log_json = log_json::enabled(cli.log_json);
+    let signing = signing_from_cli(&cli);
 
     let mut collect = match load_merged_collect_options(cli.config.as_deref()) {
         Ok(c) => c,
@@ -163,6 +230,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 resolved_state.clone(),
                 policy_none.clone(),
                 log_json,
+                &signing,
             )
             .await?;
             if code != 0 {
@@ -179,6 +247,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 resolved_state.clone(),
                 policy_none.clone(),
                 log_json,
+                &signing,
             )
             .await?;
             eprintln!("=== try: off (demo) ===");
@@ -195,6 +264,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 resolved_state.clone(),
                 policy_none.clone(),
                 log_json,
+                &signing,
             )
             .await?;
             finish(log_json, "try", code);
@@ -211,6 +281,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 resolved_state.clone(),
                 policy_none.clone(),
                 log_json,
+                &signing,
             )
             .await?;
             if code != 0 {
@@ -254,6 +325,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 resolved_state.clone(),
                 policy,
                 log_json,
+                &signing,
             )
             .await?;
             finish(log_json, "off", code);
@@ -269,6 +341,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 resolved_state.clone(),
                 policy_none.clone(),
                 log_json,
+                &signing,
             )
             .await?;
             finish(log_json, "status", code);
@@ -375,12 +448,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     resolved_state,
                     policy,
                     log_json,
+                    signing.sign_baseline,
+                    signing.require_sign,
+                    signing.verify_baseline_sig,
+                    signing.require_signed_baseline,
+                    signing.signing_key_path.clone(),
                 ),
                 interval,
             )
             .await?;
         }
-        Commands::Completions { .. } | Commands::GenMan { .. } => unreachable!(),
+        Commands::Completions { .. }
+        | Commands::GenMan { .. }
+        | Commands::Keygen { .. }
+        | Commands::SignVerify { .. } => unreachable!(),
     }
     Ok(())
 }

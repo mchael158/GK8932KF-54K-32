@@ -6,4 +6,6 @@ pub enum StorageError {
     Io(#[from] std::io::Error),
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("signature: {0}")]
+    Signature(String),
 }

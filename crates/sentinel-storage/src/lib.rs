@@ -1,9 +1,14 @@
 mod error;
 mod paths;
+mod signing;
 
 pub use error::StorageError;
 pub use paths::{
     baseline_path, ensure_state_dir, last_check_path, resolve_state_dir,
+};
+pub use signing::{
+    discover_signing_key, sign_snapshot_file, signature_path, verify_snapshot_file, write_keypair,
+    SnapshotSignature, SigningKeyFile,
 };
 
 use sentinel_inventory::InventorySnapshot;

@@ -12,7 +12,10 @@ use sentinel_inventory::verify_snapshot_demo_aware;
 use sentinel_inventory::{
     collect_snapshot, compare_snapshots, CollectOptions, PacmanFilesScope,
 };
-use sentinel_storage::{ensure_state_dir, read_snapshot, write_snapshot};
+use sentinel_storage::{
+    discover_signing_key, ensure_state_dir, read_snapshot, sign_snapshot_file, signature_path,
+    verify_snapshot_file, write_snapshot,
+};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::Mutex as AsyncMutex;
@@ -43,6 +46,15 @@ pub struct BrainOptions {
     pub mitigation_policy: MitigationPolicy,
     /// Emit JSON scan lines from the agent loop (set by CLI).
     pub log_json: bool,
+    /// Sign baseline after `on` when a key is available (or `signing_key_path` is set).
+    pub sign_baseline: bool,
+    /// Fail `on` if signing was requested but no key exists.
+    pub require_sign: bool,
+    /// Verify `baseline.json.sig` before `off` when present; fail on bad/missing if required.
+    pub verify_baseline_sig: bool,
+    /// Reject `off` when baseline has no signature sidecar.
+    pub require_signed_baseline: bool,
+    pub signing_key_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Default)]
@@ -61,6 +73,11 @@ pub struct BrainState {
     pub mitigation_policy: MitigationPolicy,
     pub state_dir: PathBuf,
     pub log_json: bool,
+    pub sign_baseline: bool,
+    pub require_sign: bool,
+    pub verify_baseline_sig: bool,
+    pub require_signed_baseline: bool,
+    pub signing_key_path: Option<PathBuf>,
     pub baseline: PathBuf,
     pub last_check: PathBuf,
     pub mitigations: Mutex<Vec<MitigationAction>>,
@@ -84,6 +101,11 @@ impl BrainState {
             mitigation_policy: opts.mitigation_policy.clone(),
             state_dir: opts.state_dir.clone(),
             log_json: opts.log_json,
+            sign_baseline: opts.sign_baseline,
+            require_sign: opts.require_sign,
+            verify_baseline_sig: opts.verify_baseline_sig,
+            require_signed_baseline: opts.require_signed_baseline,
+            signing_key_path: opts.signing_key_path.clone(),
             baseline: opts.state_dir.join("baseline.json"),
             last_check: opts.state_dir.join("last-check.json"),
             ..Default::default()
@@ -231,6 +253,27 @@ async fn run_host_op_async(op: OpCode, state: &BrainState) -> Result<i32, String
             if !state.quiet {
                 eprintln!("{msg}");
             }
+            if state.sign_baseline {
+                let key = discover_signing_key(state.signing_key_path.as_deref());
+                match key {
+                    Some(path) => {
+                        sign_snapshot_file(&state.baseline, &path).map_err(|e| e.to_string())?;
+                        if !state.quiet {
+                            eprintln!(
+                                "Signed baseline → {}",
+                                signature_path(&state.baseline).display()
+                            );
+                        }
+                    }
+                    None if state.require_sign => {
+                        return Err(
+                            "require-sign: no Ed25519 key found (run: chronos-sentinel keygen)"
+                                .into(),
+                        );
+                    }
+                    None => {}
+                }
+            }
             Ok(0)
         }
         OpCode::Off => {
@@ -241,6 +284,20 @@ async fn run_host_op_async(op: OpCode, state: &BrainState) -> Result<i32, String
                     eprintln!("{msg}");
                 }
                 return Ok(2);
+            }
+            if state.require_signed_baseline && !signature_path(&state.baseline).is_file() {
+                return Err("require-signed-baseline: missing baseline.json.sig".into());
+            }
+            if state.verify_baseline_sig {
+                match verify_snapshot_file(&state.baseline) {
+                    Ok(None) => {}
+                    Ok(Some(_)) => {
+                        if !state.quiet {
+                            eprintln!("Baseline Ed25519 signature verified");
+                        }
+                    }
+                    Err(e) => return Err(format!("baseline signature invalid: {e}")),
+                }
             }
             let baseline = read_snapshot(&state.baseline).map_err(|e| e.to_string())?;
             let current = collect_snapshot(&collect)

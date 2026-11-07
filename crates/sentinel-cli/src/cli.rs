@@ -48,6 +48,49 @@ pub struct Cli {
     )]
     pub state_dir: Option<PathBuf>,
 
+    #[arg(
+        long,
+        global = true,
+        help = "Ed25519 signing key JSON (else CHRONOS_SIGNING_KEY / XDG / /etc)"
+    )]
+    pub signing_key: Option<PathBuf>,
+
+    #[arg(
+        long,
+        default_value_t = true,
+        global = true,
+        help = "Sign baseline on `on` when a key is present"
+    )]
+    pub sign: bool,
+
+    #[arg(long, global = true, help = "Do not sign baseline on `on`")]
+    pub no_sign: bool,
+
+    #[arg(
+        long,
+        global = true,
+        help = "Refuse `on` if baseline cannot be signed"
+    )]
+    pub require_sign: bool,
+
+    #[arg(
+        long,
+        default_value_t = true,
+        global = true,
+        help = "Verify baseline.json.sig on `off` when present"
+    )]
+    pub verify_signature: bool,
+
+    #[arg(long, global = true, help = "Skip signature verification on `off`")]
+    pub no_verify_signature: bool,
+
+    #[arg(
+        long,
+        global = true,
+        help = "Refuse `off` if baseline has no signature sidecar"
+    )]
+    pub require_signed_baseline: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -144,6 +187,20 @@ pub enum Commands {
         #[arg(short, long, help = "Write chronos-sentinel.1 instead of stdout")]
         output: Option<PathBuf>,
     },
+    /// Create Ed25519 signing.key + signing.pub.json
+    Keygen {
+        #[arg(
+            short,
+            long,
+            help = "Output directory (default: XDG config or .chronos/keys)"
+        )]
+        output_dir: Option<PathBuf>,
+    },
+    /// Verify baseline.json + .sig without running a full off scan
+    SignVerify {
+        #[arg(long, help = "Snapshot JSON (default: state dir/baseline.json)")]
+        snapshot: Option<PathBuf>,
+    },
 }
 
 impl Commands {
@@ -160,6 +217,8 @@ impl Commands {
             Self::Agent { .. } => "agent",
             Self::Completions { .. } => "completions",
             Self::GenMan { .. } => "gen-man",
+            Self::Keygen { .. } => "keygen",
+            Self::SignVerify { .. } => "sign-verify",
         }
     }
 }
