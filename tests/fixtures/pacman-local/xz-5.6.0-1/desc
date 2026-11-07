@@ -1,0 +1,8 @@
+%NAME%
+xz
+%VERSION%
+5.6.0-1
+%FILES%
+usr/lib/liblzma.so.5
+usr/bin/xz
+usr/share/doc/xz/README

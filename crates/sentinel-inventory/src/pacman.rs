@@ -149,6 +149,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn fixture_desc_on_disk() {
+        let desc = include_str!("../../../tests/fixtures/pacman-local/xz-5.6.0-1/desc");
+        let pkg = parse_desc(desc).unwrap();
+        assert_eq!(pkg.name, "xz");
+        assert_eq!(pkg.installed_files.len(), 3);
+    }
+
+    #[test]
     fn parse_desc_reads_name_version_and_files() {
         let desc = "\
 %NAME%

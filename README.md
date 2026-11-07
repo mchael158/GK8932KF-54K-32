@@ -7,15 +7,19 @@ Integrity baseline for **Arch Linux**: pacman inventory, BLAKE3 hashes, diff and
 | OS (production) | Arch Linux + pacman |
 | Rust | 1.99.1 (`rust-toolchain.toml`, MSVC on Windows for dev builds) |
 | Binary | `cargo build -p sentinel-cli` → `chronos-sentinel` |
+| State dir | `CHRONOS_STATE_DIR` → `$XDG_STATE_HOME/chronos-sentinel` → `~/.local/state/chronos-sentinel` (Linux) → `.chronos/` (fallback) |
+| Packages | `packaging/aur/PKGBUILD` · GitHub release binaries on tag `v*` |
+| Threat model | [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) |
 
 ## Commands
 
 ```bash
 chronos-sentinel try              # demo: on → status → off (Windows-friendly)
 chronos-sentinel on   [-d|--demo|--dem]
-chronos-sentinel off  [-d] [--json] [--mitigate]
+chronos-sentinel off  [-d] [--json] [--mitigate] [--mitigate-confirm] [--mitigate-dry-run]
 chronos-sentinel status
-chronos-sentinel agent [-d] [--interval 300] [--mitigate]
+chronos-sentinel agent [-d] [--interval 300] [--mitigate ...]
+chronos-sentinel --state-dir /var/lib/chronos-sentinel on
 ```
 
 Run **`chronos-sentinel`** with no subcommand to print a quick-start on stderr.
@@ -50,7 +54,17 @@ One command per line (do not paste `on`, `status`, `off` on the same line unless
 
 **Exit codes (`off`):** `0` OK · `1` drift or verify failure · `2` no baseline (run `on` first). With `--demo`, drift does not force exit `1`.
 
-**`off --mitigate` (Linux):** after a dirty diff, send SIGTERM to processes whose `/proc/<pid>/exe` matches executables with hash changes or new orphans from the report.
+**Mitigation (Linux):** `--mitigate` evaluates suspicious paths after a dirty diff. **No signals by default** — use `--mitigate-dry-run` for explicit audit-only, or `--mitigate-confirm` to send SIGTERM. Skip PIDs with `--mitigate-allow-pid` / `--mitigate-allow-comm`. See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
+
+### systemd
+
+```bash
+sudo install -Dm644 packaging/systemd/chronos-sentinel.service /usr/lib/systemd/system/
+sudo mkdir -p /var/lib/chronos-sentinel
+sudo systemctl enable --now chronos-sentinel.service
+```
+
+The unit sets `CHRONOS_STATE_DIR=/var/lib/chronos-sentinel` and runs `agent` without destructive mitigation.
 
 ### Byteflow in this process
 
