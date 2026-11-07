@@ -42,6 +42,11 @@ pub fn integrity_prefix_match(rel: &str, custom_prefixes: &[String]) -> bool {
         .any(|prefix| rel.starts_with(prefix.trim_start_matches('/')))
 }
 
+/// Pacman `%FILES%` relative line → absolute path under `install_prefix` (e.g. `/` or MSYS root).
+pub fn pacman_rel_to_abs(rel: &str, install_prefix: &std::path::Path) -> std::path::PathBuf {
+    install_prefix.join(rel.trim_start_matches('/'))
+}
+
 pub fn package_file_in_scope(rel: &str, scope: PacmanFilesScope, custom_prefixes: &[String]) -> bool {
     let rel = rel.trim();
     if rel.is_empty() || rel.ends_with('/') {
@@ -56,6 +61,36 @@ pub fn package_file_in_scope(rel: &str, scope: PacmanFilesScope, custom_prefixes
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prefix_scope_excludes_doc() {
+        let none: &[String] = &[];
+        assert!(package_file_in_scope(
+            "usr/lib/liblzma.so.5",
+            PacmanFilesScope::IntegrityPrefixes,
+            none,
+        ));
+        assert!(!package_file_in_scope(
+            "usr/share/doc/xz/README",
+            PacmanFilesScope::IntegrityPrefixes,
+            none,
+        ));
+        assert!(package_file_in_scope(
+            "usr/share/doc/xz/README",
+            PacmanFilesScope::AllPackageFiles,
+            none,
+        ));
+    }
+
+    #[test]
+    fn pacman_rel_to_abs_join() {
+        assert_eq!(
+            pacman_rel_to_abs("usr/bin/xz", std::path::Path::new("/"))
+                .display()
+                .to_string(),
+            "/usr/bin/xz"
+        );
+    }
 
     #[test]
     fn custom_prefix_only_tracks_configured_roots() {

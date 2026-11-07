@@ -2,10 +2,9 @@ mod collect_pacman;
 mod config;
 mod diff;
 mod error;
-#[cfg(target_os = "linux")]
+mod host_paths;
 mod pacman;
 mod scope;
-#[cfg(target_os = "linux")]
 mod scan;
 mod snapshot;
 mod verify;

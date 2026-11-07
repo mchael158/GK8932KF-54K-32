@@ -32,4 +32,4 @@ chronos-sentinel on
 chronos-sentinel off
 ```
 
-No Windows (dev), use `chronos-sentinel try` ou `-d`; o TOML ainda vale para testar parse, mas não há pacman real.
+No Windows: rode **um** comando por vez (`on`, depois `off`). Teste rápido: `on -d` / `off -d`. Um `run.lock` no state dir impede segunda instância. O TOML pode limitar `scan_roots` para varreduras menores.

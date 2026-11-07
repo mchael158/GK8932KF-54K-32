@@ -2,7 +2,7 @@
 
 Pacman integrity baseline for **Arch Linux**: inventory, BLAKE3 hashes, diff, verify. Optional Ed25519 signing, SIEM/webhook export, and conservative process mitigation. **`on` / `off` / `status`** run through **Byteflow** [`byteflow-actors`](https://docs.rs/byteflow-actors) **0.9.23**; collection and diff are plain Rust.
 
-**Production:** Arch + pacman only (v1). **Dev on Windows:** demo data (`try`, `-d`) — no real pacman.
+**Production:** Arch + pacman (v1). **Windows:** real BLAKE3 scan of `PATH` (and MSYS2 pacman when present); use `-d` only for synthetic demo.
 
 | Requirement | Value |
 |-------------|--------|
@@ -82,16 +82,18 @@ Byteflow sandboxes the control op only; hashing and diff always run in host Rust
 
 The command **`chronos-sentinel` is not on PATH** until you install it or call the built executable.
 
-### Windows (development)
+### Windows
 
-No pacman — use **`try`** or **`-d`** on `on`/`off`.
+Real baseline: hashes executables under **`PATH`** (and DLLs under `%WINDIR%\System32` when library scan is on). With **MSYS2**, auto-detects `C:\msys64` and pacman `local` DB when present (`CHRONOS_PACMAN_DB`, `CHRONOS_INSTALL_PREFIX` to override).
+
+Run **one command at a time** and wait for the prompt. A second `on`/`off`/`try` while the first is scanning exits **2** (`run.lock` in the state dir). Quick smoke test: `on -d` / `off -d`. Day-to-day: `on` once, then only `off` (avoid `try` on huge PATH — it scans twice).
 
 ```powershell
 cd path\to\GK8932KF-54K-32
 cargo build -p sentinel-cli
-.\target\debug\chronos-sentinel.exe try
-.\target\debug\chronos-sentinel.exe on -d
-.\target\debug\chronos-sentinel.exe off -d --log-json
+.\target\debug\chronos-sentinel.exe on
+.\target\debug\chronos-sentinel.exe off --log-json
+.\target\debug\chronos-sentinel.exe on -d    # fast synthetic demo
 ```
 
 Without building first:

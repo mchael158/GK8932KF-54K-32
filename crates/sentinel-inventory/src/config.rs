@@ -56,6 +56,9 @@ pub enum WebhookWhenToml {
 pub struct InventoryToml {
     #[serde(default)]
     pub pacman_db: Option<PathBuf>,
+    /// MSYS2 install root (maps `%FILES%`); Linux uses `/`.
+    #[serde(default)]
+    pub install_prefix: Option<PathBuf>,
     #[serde(default)]
     pub scan_roots: Vec<PathBuf>,
     #[serde(default)]
@@ -79,6 +82,9 @@ impl InventoryToml {
     pub fn apply_to(&self, opts: &mut CollectOptions) {
         if let Some(db) = &self.pacman_db {
             opts.pacman_db = db.clone();
+        }
+        if let Some(prefix) = &self.install_prefix {
+            opts.install_prefix = prefix.clone();
         }
         if !self.scan_roots.is_empty() {
             opts.scan_roots = self.scan_roots.clone();

@@ -15,7 +15,9 @@ use sentinel_inventory::{
     collect_snapshot, compare_snapshots, discover_config_path, load_chronos_config, verify_snapshot,
     CollectOptions, ExportToml, PacmanFilesScope,
 };
-use sentinel_storage::{read_snapshot, verify_snapshot_file, write_keypair, write_snapshot};
+use sentinel_storage::{
+    read_snapshot, try_acquire_run_lock, verify_snapshot_file, write_keypair, write_snapshot,
+};
 use guide::{print_quickstart, require_demo_on_host};
 use state::{baseline_missing_message, baseline_path, print_off_header, state_dir};
 use std::collections::HashSet;
@@ -48,6 +50,16 @@ fn default_keygen_dir() -> PathBuf {
         }
     }
     PathBuf::from(".chronos/keys")
+}
+
+fn acquire_run_lock_or_exit(state_dir: &std::path::Path, command: &str) -> sentinel_storage::RunLock {
+    match try_acquire_run_lock(state_dir, command) {
+        Ok(guard) => guard,
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(2);
+        }
+    }
 }
 
 fn mitigation_policy(
@@ -83,6 +95,7 @@ fn brain_opts(
 ) -> sentinel_agent::BrainOptions {
     sentinel_agent::BrainOptions {
         pacman_db: collect.pacman_db.clone(),
+        install_prefix: collect.install_prefix.clone(),
         demo,
         mitigate,
         json,
@@ -252,6 +265,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if let Some(db) = &cli.pacman_db {
         collect.pacman_db = db.clone();
     }
+    if let Some(prefix) = &cli.install_prefix {
+        collect.install_prefix = prefix.clone();
+    }
     if cli.full_files {
         collect.files_scope = PacmanFilesScope::AllPackageFiles;
     }
@@ -277,11 +293,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     match command {
         Commands::Try { json } => {
-            eprintln!("=== try: on (demo) ===");
+            let _run_lock = acquire_run_lock_or_exit(&resolved_state, "try");
+            eprintln!("=== try: on ===");
             let code = run_brain(
                 sentinel_agent::OpCode::On,
                 &collect,
-                true,
+                false,
                 false,
                 false,
                 false,
@@ -310,14 +327,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 &export,
             )
             .await?;
-            eprintln!("=== try: off (demo) ===");
+            eprintln!("=== try: off ===");
             if !json {
                 print_off_header();
             }
             let code = run_brain(
                 sentinel_agent::OpCode::Off,
                 &collect,
-                true,
+                false,
                 false,
                 json,
                 quiet,
@@ -331,6 +348,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             finish(log_json, "try", code);
         }
         Commands::On { demo } => {
+            let _run_lock = acquire_run_lock_or_exit(&resolved_state, "on");
             require_demo_on_host(demo, "on");
             let code = run_brain(
                 sentinel_agent::OpCode::On,
@@ -362,6 +380,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             mitigate_allow_pid,
             mitigate_allow_comm,
         } => {
+            let _run_lock = acquire_run_lock_or_exit(&resolved_state, "off");
             require_demo_on_host(demo, "off");
             if !baseline_path(cli.state_dir.as_deref()).exists() {
                 eprintln!("{}", baseline_missing_message(cli.state_dir.as_deref()));
@@ -417,6 +436,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             libs,
             demo,
         } => {
+            let _run_lock = acquire_run_lock_or_exit(&resolved_state, "inventory");
             require_demo_on_host(demo, "inventory");
             let mut opts = collect.clone();
             opts.hash_executables = hash || opts.hash_executables;
@@ -495,6 +515,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             mitigate_allow_pid,
             mitigate_allow_comm,
         } => {
+            let _run_lock = acquire_run_lock_or_exit(&resolved_state, "agent");
             let policy = mitigation_policy(
                 mitigate,
                 mitigate_dry_run,

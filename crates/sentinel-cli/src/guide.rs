@@ -2,11 +2,14 @@ pub fn print_quickstart() {
     eprintln!(
         r#"chronos-sentinel — pacman integrity (Arch). State: CHRONOS_STATE_DIR or XDG (~/.local/state/chronos-sentinel); else .chronos/
 
-Quick start (Windows / dev — synthetic data):
-  chronos-sentinel try              one shot: on → status → off (all demo)
-  chronos-sentinel on  -d           baseline (state dir/baseline.json)
-  chronos-sentinel off -d           diff + verify
-  chronos-sentinel status
+Windows / produção local (um comando por vez — espere o prompt):
+  chronos-sentinel on               baseline real (PATH + MSYS2 se houver)
+  chronos-sentinel off              diff + verify (re-varre; pode levar minutos)
+  chronos-sentinel on -d / off -d   demo sintético (segundos)
+  chronos-sentinel try              on + status + off (2 varreduras — só teste)
+  chronos-sentinel status           leitura (sem lock de varredura)
+
+Segunda instância on/off/try/agent no mesmo state dir → recusada (run.lock, código 2).
 
 Production (Arch Linux, real pacman):
   chronos-sentinel on
@@ -26,15 +29,5 @@ Logs: --log-json  |  Docs: docs/OPERATIONS.pt-BR.md  |  Help: chronos-sentinel h
 }
 
 pub fn require_demo_on_host(demo: bool, verb: &str) {
-    #[cfg(not(target_os = "linux"))]
-    if !demo {
-        eprintln!(
-            "{verb}: sem pacman no host — use -d/--demo ou: chronos-sentinel try"
-        );
-        std::process::exit(2);
-    }
-    #[cfg(target_os = "linux")]
-    if !demo {
-        let _ = verb;
-    }
+    let _ = (demo, verb);
 }

@@ -31,6 +31,7 @@ const NATIVE_MITIGATE_PID: u32 = 9;
 #[derive(Debug, Clone)]
 pub struct BrainOptions {
     pub pacman_db: PathBuf,
+    pub install_prefix: PathBuf,
     pub demo: bool,
     pub mitigate: bool,
     pub json: bool,
@@ -62,6 +63,7 @@ pub struct BrainOptions {
 #[derive(Debug, Default)]
 pub struct BrainState {
     pub pacman_db: PathBuf,
+    pub install_prefix: PathBuf,
     pub demo: bool,
     pub mitigate: bool,
     pub json: bool,
@@ -91,6 +93,7 @@ impl BrainState {
     pub fn new(opts: &BrainOptions) -> Self {
         Self {
             pacman_db: opts.pacman_db.clone(),
+            install_prefix: opts.install_prefix.clone(),
             demo: opts.demo,
             mitigate: opts.mitigate,
             json: opts.json,
@@ -225,6 +228,7 @@ fn run_host_op(op: OpCode, state: &BrainState) -> Result<i32, byteflow::Fault> {
 async fn run_host_op_async(op: OpCode, state: &BrainState) -> Result<i32, String> {
     let collect = CollectOptions {
         pacman_db: state.pacman_db.clone(),
+        install_prefix: state.install_prefix.clone(),
         scan_roots: state.scan_roots.clone(),
         lib_roots: state.lib_roots.clone(),
         hash_executables: state.hash_executables,

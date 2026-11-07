@@ -7,7 +7,7 @@ use std::path::PathBuf;
     name = "chronos-sentinel",
     version,
     about = "pacman integrity baseline (Arch)",
-    after_help = "Windows/dev:  chronos-sentinel try     |     -d = --demo = --dem"
+    after_help = "Windows: real scan of PATH (+ MSYS2 pacman if present).  -d = synthetic demo"
 )]
 pub struct Cli {
     #[arg(long, short = 'v', global = true, help = "show Byteflow audit: lines on stderr")]
@@ -26,6 +26,13 @@ pub struct Cli {
         help = "Pacman local database (default: /var/lib/pacman/local on Linux)"
     )]
     pub pacman_db: Option<PathBuf>,
+
+    #[arg(
+        long,
+        global = true,
+        help = "Install prefix for pacman %FILES% (default: / on Linux, MSYS2 root on Windows)"
+    )]
+    pub install_prefix: Option<PathBuf>,
 
     #[arg(
         long,
@@ -123,12 +130,12 @@ pub enum Commands {
     },
     /// Save baseline (state dir/baseline.json)
     On {
-        #[arg(long, short = 'd', visible_alias = "dem", help = "demo snapshot (required off Linux)")]
+        #[arg(long, short = 'd', visible_alias = "dem", help = "synthetic snapshot (skip host scan)")]
         demo: bool,
     },
     /// Diff and verify against baseline
     Off {
-        #[arg(long, short = 'd', visible_alias = "dem", help = "demo snapshot (required off Linux)")]
+        #[arg(long, short = 'd', visible_alias = "dem", help = "synthetic snapshot (skip host scan)")]
         demo: bool,
         #[arg(long, help = "JSON diff on stdout")]
         json: bool,

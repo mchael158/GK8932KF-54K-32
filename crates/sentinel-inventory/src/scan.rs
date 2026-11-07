@@ -64,13 +64,27 @@ async fn scan_paths(
 }
 
 fn is_shared_library(path: &Path) -> bool {
-    path.extension()
+    let ext = path
+        .extension()
         .and_then(|e| e.to_str())
-        .is_some_and(|ext| matches!(ext, "so" | "0" | "1" | "2" | "3" | "4" | "5" | "6"))
-        || path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.contains(".so"))
+        .map(str::to_ascii_lowercase);
+    #[cfg(unix)]
+    {
+        ext.is_some_and(|ext| matches!(ext.as_str(), "so" | "0" | "1" | "2" | "3" | "4" | "5" | "6"))
+            || path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.contains(".so"))
+    }
+    #[cfg(windows)]
+    {
+        ext.is_some_and(|ext| matches!(ext.as_str(), "dll"))
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = ext;
+        false
+    }
 }
 
 fn is_executable(path: &Path) -> bool {
@@ -81,7 +95,18 @@ fn is_executable(path: &Path) -> bool {
             .map(|m| m.permissions().mode() & 0o111 != 0)
             .unwrap_or(false)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        path.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|ext| {
+                matches!(
+                    ext.to_ascii_lowercase().as_str(),
+                    "exe" | "com" | "cmd" | "bat" | "msi" | "ps1"
+                )
+            })
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = path;
         false
@@ -89,23 +114,15 @@ fn is_executable(path: &Path) -> bool {
 }
 
 async fn resolve_owner(path: &Path) -> Option<String> {
-    #[cfg(target_os = "linux")]
-    {
-        let output = tokio::process::Command::new("pacman")
-            .args(["-Qo", &path.display().to_string()])
-            .output()
-            .await
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let line = String::from_utf8_lossy(&output.stdout);
-        let first = line.lines().next()?;
-        first.split_whitespace().nth(4).map(|s| s.to_string())
+    let output = tokio::process::Command::new("pacman")
+        .args(["-Qo", &path.display().to_string()])
+        .output()
+        .await
+        .ok()?;
+    if !output.status.success() {
+        return None;
     }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = path;
-        None
-    }
+    let line = String::from_utf8_lossy(&output.stdout);
+    let first = line.lines().next()?;
+    first.split_whitespace().nth(4).map(|s| s.to_string())
 }
